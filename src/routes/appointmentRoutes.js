@@ -1,4 +1,5 @@
 import express from 'express';
+import { protect } from '../middleware/authMiddleware.js';
 import {
   getAppointments,
   getAppointmentById,
@@ -8,13 +9,8 @@ import {
 
 const router = express.Router();
 
-//router.use(protect);
-router.use((req, res, next) => {
-  req.provider = {
-    id: 1, // change this to an existing provider id in your DB
-  };
-  next();
-});
+// Apply JWT verification
+router.use(protect);
 
 router.get('/', getAppointments);
 router.get('/today', getTodayAppointments);

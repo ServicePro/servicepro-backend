@@ -1,10 +1,10 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { pool } from '../config/db.js';
+import Provider from '../models/Provider.js';
 
 // ── Helper: generate JWT ──────────────────────────────────────
 const generateToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET, {
+  jwt.sign({ id }, process.env.JWT_SECRET || 'servicepro_super_secret_jwt_key_change_in_production', {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   });
 
@@ -20,12 +20,9 @@ const register = async (req, res, next) => {
       });
     }
 
-    const [existing] = await pool.execute(
-      'SELECT id FROM providers WHERE email = ?',
-      [email]
-    );
+    const existing = await Provider.findOne({ email });
 
-    if (existing.length > 0) {
+    if (existing) {
       return res.status(409).json({
         success: false,
         message: 'Email is already registered.',
@@ -35,28 +32,33 @@ const register = async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const [result] = await pool.execute(
-      `INSERT INTO providers (name, email, password, phone, category, bio)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, email, hashedPassword, phone || null, category || null, bio || null]
-    );
+    const provider = new Provider({
+      name,
+      email,
+      password: hashedPassword,
+      phone,
+      category,
+      bio,
+    });
 
-    const providerId = result.insertId;
+    await provider.save();
 
-    const [rows] = await pool.execute(
-      'SELECT id, name, email, phone, category, profile_image, rating, created_at FROM providers WHERE id = ?',
-      [providerId]
-    );
+    const providerData = provider.toObject();
+    delete providerData.password;
+    providerData.id = providerData._id;
 
     res.status(201).json({
       success: true,
       message: 'Registration successful.',
       data: {
-        provider: rows[0],
-        token: generateToken(providerId),
+        provider: providerData,
+        token: generateToken(provider._id),
       },
     });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: 'Email is already registered.' });
+    }
     next(error);
   }
 };
@@ -73,19 +75,14 @@ const login = async (req, res, next) => {
       });
     }
 
-    const [rows] = await pool.execute(
-      'SELECT * FROM providers WHERE email = ? AND is_active = 1',
-      [email]
-    );
+    const provider = await Provider.findOne({ email, is_active: true });
 
-    if (rows.length === 0) {
+    if (!provider) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials.',
+        message: 'Invalid credentials or account deactivated.',
       });
     }
-
-    const provider = rows[0];
 
     const isMatch = await bcrypt.compare(password, provider.password);
     if (!isMatch) {
@@ -95,14 +92,16 @@ const login = async (req, res, next) => {
       });
     }
 
-    const { password: _, ...providerData } = provider;
+    const providerData = provider.toObject();
+    delete providerData.password;
+    providerData.id = providerData._id;
 
     res.json({
       success: true,
       message: 'Login successful.',
       data: {
         provider: providerData,
-        token: generateToken(provider.id),
+        token: generateToken(provider._id),
       },
     });
   } catch (error) {
@@ -113,13 +112,15 @@ const login = async (req, res, next) => {
 // Get profile
 const getMe = async (req, res, next) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT id, name, email, phone, category, bio, profile_image, rating, total_reviews, created_at
-       FROM providers WHERE id = ?`,
-      [req.provider.id]
-    );
+    const provider = await Provider.findById(req.user.id).select('-password');
+    if (!provider) {
+      return res.status(404).json({ success: false, message: 'Provider not found.' });
+    }
 
-    res.json({ success: true, data: { provider: rows[0] } });
+    const providerData = provider.toObject();
+    providerData.id = providerData._id;
+
+    res.json({ success: true, data: { provider: providerData } });
   } catch (error) {
     next(error);
   }
@@ -129,23 +130,27 @@ const getMe = async (req, res, next) => {
 const updateProfile = async (req, res, next) => {
   try {
     const { name, phone, category, bio } = req.body;
-    const providerId = req.provider.id;
 
-    await pool.execute(
-      `UPDATE providers SET name = ?, phone = ?, category = ?, bio = ?, updated_at = NOW()
-       WHERE id = ?`,
-      [name || req.provider.name, phone || null, category || null, bio || null, providerId]
-    );
+    const provider = await Provider.findById(req.user.id);
+    if (!provider) {
+      return res.status(404).json({ success: false, message: 'Provider not found.' });
+    }
 
-    const [rows] = await pool.execute(
-      'SELECT id, name, email, phone, category, bio, profile_image, rating, total_reviews FROM providers WHERE id = ?',
-      [providerId]
-    );
+    if (name) provider.name = name;
+    if (phone) provider.phone = phone;
+    if (category) provider.category = category;
+    if (bio) provider.bio = bio;
+
+    await provider.save();
+
+    const providerData = provider.toObject();
+    delete providerData.password;
+    providerData.id = providerData._id;
 
     res.json({
       success: true,
       message: 'Profile updated.',
-      data: { provider: rows[0] },
+      data: { provider: providerData },
     });
   } catch (error) {
     next(error);
@@ -164,12 +169,12 @@ const changePassword = async (req, res, next) => {
       });
     }
 
-    const [rows] = await pool.execute(
-      'SELECT password FROM providers WHERE id = ?',
-      [req.provider.id]
-    );
+    const provider = await Provider.findById(req.user.id);
+    if (!provider) {
+      return res.status(404).json({ success: false, message: 'Provider not found.' });
+    }
 
-    const isMatch = await bcrypt.compare(currentPassword, rows[0].password);
+    const isMatch = await bcrypt.compare(currentPassword, provider.password);
     if (!isMatch) {
       return res.status(400).json({
         success: false,
@@ -178,12 +183,8 @@ const changePassword = async (req, res, next) => {
     }
 
     const salt = await bcrypt.genSalt(10);
-    const newHashed = await bcrypt.hash(newPassword, salt);
-
-    await pool.execute(
-      'UPDATE providers SET password = ?, updated_at = NOW() WHERE id = ?',
-      [newHashed, req.provider.id]
-    );
+    provider.password = await bcrypt.hash(newPassword, salt);
+    await provider.save();
 
     res.json({
       success: true,

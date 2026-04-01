@@ -1,51 +1,55 @@
-import { pool } from '../config/db.js';
+import Appointment from '../models/Appointment.js';
+import mongoose from 'mongoose';
 
 // Get all appointments
 const getAppointments = async (req, res, next) => {
   try {
-    const providerId = req.provider.id;
+    const providerId = req.user.id;
     const { status, service_id, date_from, date_to, page = 1, limit = 20 } = req.query;
 
-    let query = `
-      SELECT
-        a.*,
-        s.name        AS service_name,
-        s.category    AS service_category,
-        s.image_url   AS service_image
-      FROM appointments a
-      JOIN services s ON a.service_id = s.id
-      WHERE a.provider_id = ?
-    `;
-    let params = [providerId];
+    let query = { providerId };
 
-    if (status)     { query += ` AND a.status = ?`;            params.push(status); }
-    if (service_id) { query += ` AND a.service_id = ?`;        params.push(service_id); }
-    if (date_from)  { query += ` AND a.appointment_date >= ?`; params.push(date_from); }
-    if (date_to)    { query += ` AND a.appointment_date <= ?`; params.push(date_to); }
+    if (status) query.status = status;
+    if (service_id) query.serviceId = service_id;
+    if (date_from || date_to) {
+      query.appointment_date = {};
+      if (date_from) query.appointment_date.$gte = new Date(date_from);
+      if (date_to) query.appointment_date.$lte = new Date(date_to);
+    }
 
-    query += ` ORDER BY a.appointment_date ASC, a.appointment_time ASC`;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    query += ` LIMIT ? OFFSET ?`;
-    params.push(parseInt(limit), offset);
+    // populate service to match SQL join (service_name, service_category)
+    const appointmentsDocs = await Appointment.find(query)
+      .populate('serviceId', 'name category image_url')
+      .sort({ appointment_date: 1, appointment_time: 1 })
+      .skip(skip)
+      .limit(parseInt(limit));
 
-    const [appointments] = await pool.execute(query, params);
+    const total = await Appointment.countDocuments(query);
 
-    const [countResult] = await pool.execute(
-      'SELECT COUNT(*) AS total FROM appointments WHERE provider_id = ?',
-      [providerId]
-    );
-
-    const [statusCounts] = await pool.execute(
-      `SELECT status, COUNT(*) AS count
-       FROM appointments
-       WHERE provider_id = ?
-       GROUP BY status`,
-      [providerId]
-    );
+    // Get counts grouped by status
+    const statusCountsAgg = await Appointment.aggregate([
+      { $match: { providerId: new mongoose.Types.ObjectId(providerId) } },
+      { $group: { _id: "$status", count: { $sum: 1 } } }
+    ]);
 
     const counts = { pending: 0, confirmed: 0, completed: 0, cancelled: 0 };
-    statusCounts.forEach((row) => { counts[row.status] = row.count; });
+    statusCountsAgg.forEach(row => {
+      counts[row._id] = row.count;
+    });
+
+    const appointments = appointmentsDocs.map(doc => {
+      const obj = doc.toObject();
+      obj.id = obj._id;
+      // Map populated fields back to flat structure expected by frontend
+      if (obj.serviceId) {
+        obj.service_name = obj.serviceId.name;
+        obj.service_category = obj.serviceId.category;
+        obj.service_image = obj.serviceId.image_url;
+      }
+      return obj;
+    });
 
     res.json({
       success: true,
@@ -53,10 +57,10 @@ const getAppointments = async (req, res, next) => {
         appointments,
         statusCounts: counts,
         pagination: {
-          total: countResult[0].total,
-          page:  parseInt(page),
+          total,
+          page: parseInt(page),
           limit: parseInt(limit),
-          pages: Math.ceil(countResult[0].total / parseInt(limit)),
+          pages: Math.ceil(total / parseInt(limit)),
         },
       },
     });
@@ -68,19 +72,21 @@ const getAppointments = async (req, res, next) => {
 // Get appointment by ID
 const getAppointmentById = async (req, res, next) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT a.*, s.name AS service_name, s.category AS service_category
-       FROM appointments a
-       JOIN services s ON a.service_id = s.id
-       WHERE a.id = ? AND a.provider_id = ?`,
-      [req.params.id, req.provider.id]
-    );
+    const appointmentDoc = await Appointment.findOne({ _id: req.params.id, providerId: req.user.id })
+      .populate('serviceId', 'name category');
 
-    if (rows.length === 0) {
+    if (!appointmentDoc) {
       return res.status(404).json({ success: false, message: 'Appointment not found.' });
     }
 
-    res.json({ success: true, data: { appointment: rows[0] } });
+    const appointment = appointmentDoc.toObject();
+    appointment.id = appointment._id;
+    if (appointment.serviceId) {
+      appointment.service_name = appointment.serviceId.name;
+      appointment.service_category = appointment.serviceId.category;
+    }
+
+    res.json({ success: true, data: { appointment } });
   } catch (error) {
     next(error);
   }
@@ -99,16 +105,13 @@ const updateAppointmentStatus = async (req, res, next) => {
       });
     }
 
-    const [rows] = await pool.execute(
-      'SELECT id, status FROM appointments WHERE id = ? AND provider_id = ?',
-      [req.params.id, req.provider.id]
-    );
+    const appointment = await Appointment.findOne({ _id: req.params.id, providerId: req.user.id });
 
-    if (rows.length === 0) {
+    if (!appointment) {
       return res.status(404).json({ success: false, message: 'Appointment not found.' });
     }
 
-    const currentStatus = rows[0].status;
+    const currentStatus = appointment.status;
     if (['completed', 'cancelled'].includes(currentStatus)) {
       return res.status(400).json({
         success: false,
@@ -116,19 +119,8 @@ const updateAppointmentStatus = async (req, res, next) => {
       });
     }
 
-    await pool.execute(
-      'UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ?',
-      [status, req.params.id]
-    );
-
-    if (status === 'completed') {
-      await pool.execute(
-        `UPDATE services
-         SET total_bookings = total_bookings + 1
-         WHERE id = (SELECT service_id FROM appointments WHERE id = ?)`,
-        [req.params.id]
-      );
-    }
+    appointment.status = status;
+    await appointment.save();
 
     res.json({
       success: true,
@@ -143,16 +135,25 @@ const updateAppointmentStatus = async (req, res, next) => {
 // Get today's appointments
 const getTodayAppointments = async (req, res, next) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+    const dateStart = new Date(todayStr);
+    const dateEnd = new Date(dateStart);
+    dateEnd.setDate(dateEnd.getDate() + 1);
 
-    const [appointments] = await pool.execute(
-      `SELECT a.*, s.name AS service_name, s.category AS service_category
-       FROM appointments a
-       JOIN services s ON a.service_id = s.id
-       WHERE a.provider_id = ? AND a.appointment_date = ?
-       ORDER BY a.appointment_time ASC`,
-      [req.provider.id, today]
-    );
+    const appointmentsDocs = await Appointment.find({
+      providerId: req.user.id,
+      appointment_date: { $gte: dateStart, $lt: dateEnd }
+    }).populate('serviceId', 'name category').sort({ appointment_time: 1 });
+
+    const appointments = appointmentsDocs.map(doc => {
+      const obj = doc.toObject();
+      obj.id = obj._id;
+      if (obj.serviceId) {
+        obj.service_name = obj.serviceId.name;
+        obj.service_category = obj.serviceId.category;
+      }
+      return obj;
+    });
 
     res.json({ success: true, data: { appointments } });
   } catch (error) {

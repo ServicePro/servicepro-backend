@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { pool } from '../config/db.js';
+import Provider from '../models/Provider.js';
 
 // ── Protect routes: validate JWT ─────────────────────────────
 const protect = async (req, res, next) => {
@@ -18,22 +18,22 @@ const protect = async (req, res, next) => {
     }
 
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'servicepro_super_secret_jwt_key_change_in_production');
 
     // Attach provider from DB to request
-    const [rows] = await pool.execute(
-      'SELECT id, name, email, phone, category, profile_image, rating FROM providers WHERE id = ? AND is_active = 1',
-      [decoded.id]
-    );
+    const provider = await Provider.findOne({ _id: decoded.id, is_active: true });
 
-    if (rows.length === 0) {
+    if (!provider) {
       return res.status(401).json({
         success: false,
         message: 'Provider account not found or deactivated.',
       });
     }
 
-    req.provider = rows[0];
+    // Attach user obj structure so standard controllers (req.user.id) can use it seamlessly
+    req.user = { id: provider._id.toString() }; 
+    req.provider = provider; // keep backwards compatibility
+
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

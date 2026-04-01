@@ -1,8 +1,9 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
+import { protect } from '../middleware/authMiddleware.js';
 import {
-  getServices,
+  getAllServices,
   getServiceById,
   createService,
   updateService,
@@ -36,15 +37,9 @@ const upload = multer({
 });
 
 // All routes are private (require JWT)
-// router.use(protect);
-router.use((req, res, next) => {
-  req.provider = {
-    id: 1, // change this to an existing provider id in your DB
-  };
-  next();
-});
+router.use(protect);
 
-router.get('/', getServices);
+router.get('/', getAllServices);
 router.get('/:id', getServiceById);
 router.post('/', upload.single('image'), createService);
 router.put('/:id', upload.single('image'), updateService);

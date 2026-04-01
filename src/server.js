@@ -3,7 +3,7 @@ import app from "./app.js";
 
 // ================= Added Backend Setup =================
 import 'dotenv/config';
-import { initializeDatabase, testConnection } from './config/db.js';
+import { connectDB } from './config/db.js';
 
 // ================= Server Configuration =================
 const PORT = process.env.PORT || 5000;
@@ -11,13 +11,10 @@ const PORT = process.env.PORT || 5000;
 // ================= Start Server =================
 const startServer = async () => {
   try {
-    // 1. Create database and tables from schema.sql
-    await initializeDatabase();
+    // 1. Connect MongoDB
+    await connectDB();
 
-    // 2. Test database connection
-    await testConnection();
-
-    // 3. Start server
+    // 2. Start server
     app.listen(PORT, () => {
       console.log("\n🚀 Server started successfully");
       console.log(`   Port:        http://localhost:${PORT}`);
