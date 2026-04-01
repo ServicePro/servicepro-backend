@@ -80,7 +80,7 @@ const createService = async (req, res, next) => {
       });
     }
 
-    const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+    const image_url = req.file ? `/src/uploads/${req.file.filename}` : null;
 
     const [result] = await pool.execute(
       `INSERT INTO services
