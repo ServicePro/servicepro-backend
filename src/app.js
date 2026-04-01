@@ -47,7 +47,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 /* =========================================================
    EXISTING GROUP ROUTES
 ========================================================= */
-app.use("/api/landing", landingRoutes);
+app.use("/landing", landingRoutes);
 
 /* =========================================================
    YOUR NEWLY ADDED ROUTES
@@ -61,11 +61,11 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.use("/api/auth", authRoutes);
-app.use("/api/services", serviceRoutes);
-app.use("/api/appointments", appointmentRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/dashboard", dashboardRoutes);
+app.use("/auth", authRoutes);
+app.use("/services", serviceRoutes);
+app.use("/appointments", appointmentRoutes);
+app.use("/analytics", analyticsRoutes);
+app.use("/dashboard", dashboardRoutes);
 
 /* =========================================================
    YOUR NEWLY ADDED ERROR HANDLERS
