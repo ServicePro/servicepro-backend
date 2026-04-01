@@ -1,22 +1,37 @@
-import express from 'express';
-import { protect } from '../middleware/authMiddleware.js';
+import express from "express";
 import {
-  register,
-  login,
-  getMe,
-  updateProfile,
-  changePassword,
-} from '../controllers/authController.js';
+  registerUser,
+  verifyUser,
+  loginUser,
+  googleAuth,
+  linkedinInitiate,
+  linkedinCallback,
+  facebookInitiate,
+  facebookCallback,
+  forgotPassword,
+  resetPassword
+} from "../controllers/authController.js";
 
 const router = express.Router();
 
-// Public routes
-router.post('/register', register);
-router.post('/login', login);
+// Email / password
+router.post("/register", registerUser);
+router.post("/login", loginUser);
+router.get("/verify/:token", verifyUser);
 
-// Private routes (require JWT)
-router.get('/me', protect, getMe);
-router.put('/profile', protect, updateProfile);
-router.put('/change-password', protect, changePassword);
+// Forgot / reset password (OTP flow)
+router.post("/forgot", forgotPassword);
+router.post("/reset", resetPassword);
+
+// Google (access-token flow via frontend SDK)
+router.post("/google", googleAuth);
+
+// LinkedIn (server-side code exchange)
+router.get("/linkedin", linkedinInitiate);
+router.get("/linkedin/callback", linkedinCallback);
+
+// Facebook (server-side code exchange)
+router.get("/facebook", facebookInitiate);
+router.get("/facebook/callback", facebookCallback);
 
 export default router;

@@ -5,10 +5,14 @@ import { fileURLToPath } from "url";
 
 // Existing group route
 import landingRoutes from "./routes/landingRoutes.js";
+import providerRoutes from "./routes/providerRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ===== Your newly added middleware / routes =====
 import { errorHandler, notFound } from "./middleware/errorMiddleware.js";
-import authRoutes from "./routes/authRoutes.js";
 import serviceRoutes from "./routes/serviceRoutes.js";
 import appointmentRoutes from "./routes/appointmentRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
@@ -17,15 +21,15 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 
 const app = express();
 
-// Fix __dirname for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 /* =========================================================
    EXISTING GROUP MIDDLEWARE
 ========================================================= */
 app.use(cors());
 app.use(express.json());
+
+// Serve uploaded provider documents
+app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 /* =========================================================
    YOUR NEWLY ADDED MIDDLEWARE
@@ -40,9 +44,6 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
-// Serve uploaded images
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* =========================================================
    EXISTING GROUP ROUTES
@@ -61,11 +62,13 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.use("/auth", authRoutes);
-app.use("/services", serviceRoutes);
-app.use("/appointments", appointmentRoutes);
-app.use("/analytics", analyticsRoutes);
-app.use("/dashboard", dashboardRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/services", serviceRoutes);
+app.use("/api/appointments", appointmentRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/providers", providerRoutes);
+app.use("/api/admin", adminRoutes);
 
 /* =========================================================
    YOUR NEWLY ADDED ERROR HANDLERS
