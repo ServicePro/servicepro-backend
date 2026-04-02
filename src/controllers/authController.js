@@ -4,18 +4,10 @@ import jwt from "jsonwebtoken";
 import sendEmail from "../utils/sendEmail.js";
 import mongoose from "mongoose";
 
-// Lazy-load Provider model from providerController's schema
-let _Provider = null;
-const getProvider = () => {
-  if (!_Provider) {
-    _Provider = mongoose.models.Provider || mongoose.model("Provider", new mongoose.Schema({
-      name: String, email: String, password: String, status: String,
-      resetOtp: String, resetOtpExpiry: Date,
-      category: String, skills: String, experience: String, area: String, availability: String
-    }));
-  }
-  return _Provider;
-};
+import Provider from "../models/Provider.js";
+
+// Lazy-load hack removed! We now import the correct single source of truth Provider model.
+const getProvider = () => Provider;
 
 
 export const registerUser = async (req, res) => {
@@ -95,13 +87,19 @@ export const loginUser = async (req, res) => {
     }
 
     const Provider = getProvider();
+    const normalizedEmail = email.trim().toLowerCase();
 
-    // Check both collections
-    const userRecord = await User.findOne({ email });
-    const providerRecord = await Provider.findOne({ email });
+    // Check both collections using lowercase email
+    const userRecord = await User.findOne({ email: normalizedEmail });
+    const providerRecord = await Provider.findOne({ email: normalizedEmail });
 
     const existsAsUser = !!userRecord;
     const existsAsProvider = !!providerRecord;
+
+    // Reject unregistered outright with 401 instead of a cryptic 400
+    if (!existsAsUser && !existsAsProvider) {
+       return res.status(401).json({ message: "Invalid email or password" });
+    }
 
     // If email exists in both and no loginAs specified, ask the frontend
     if (existsAsUser && existsAsProvider && !loginAs) {
@@ -109,11 +107,7 @@ export const loginUser = async (req, res) => {
     }
 
     // ── Admin / User login (from User collection) ──────────────────────────
-    if (loginAs === "user" || loginAs === "admin" || (!loginAs && existsAsUser)) {
-      if (!userRecord) {
-        return res.status(401).json({ message: "Invalid email or password" });
-      }
-
+    if (loginAs === "user" || loginAs === "admin" || (!loginAs && existsAsUser && !existsAsProvider)) {
       if (!userRecord.isVerified) {
         return res.status(403).json({ message: "Please verify your email before logging in" });
       }
@@ -136,10 +130,6 @@ export const loginUser = async (req, res) => {
 
     // ── Provider login ────────────────────────────────────────────────────
     if (loginAs === "provider" || (!loginAs && !existsAsUser && existsAsProvider)) {
-      if (!providerRecord) {
-        return res.status(401).json({ message: "Invalid email or password" });
-      }
-
       if (providerRecord.status !== "approved") {
         return res.status(403).json({ message: "Your provider account is pending approval or has been rejected." });
       }
@@ -156,7 +146,7 @@ export const loginUser = async (req, res) => {
       });
     }
 
-    return res.status(400).json({ message: "Invalid loginAs value" });
+    return res.status(400).json({ message: "Invalid login configuration." });
 
   } catch (error) {
     console.error("Login error:", error.message);
@@ -387,13 +377,13 @@ export const forgotPassword = async (req, res) => {
     if (!email) return res.status(400).json({ message: "Email is required" });
 
     const Provider = getProvider();
+    const normalizedEmail = email.trim().toLowerCase();
 
-    // Find in User or Provider collection
-    const user = await User.findOne({ email });
-    const provider = await Provider.findOne({ email });
-    const record = user || provider;
+    // Find in both User and Provider collections
+    const user = await User.findOne({ email: normalizedEmail });
+    const provider = await Provider.findOne({ email: normalizedEmail });
 
-    if (!record) {
+    if (!user && !provider) {
       // Don't reveal whether email exists — always say sent
       return res.json({ message: "If that email is registered, an OTP has been sent." });
     }
@@ -402,9 +392,17 @@ export const forgotPassword = async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    record.resetOtp = otp;
-    record.resetOtpExpiry = expiry;
-    await record.save();
+    // Update whichever records exist
+    if (user) {
+      user.resetOtp = otp;
+      user.resetOtpExpiry = expiry;
+      await user.save();
+    }
+    if (provider) {
+      provider.resetOtp = otp;
+      provider.resetOtpExpiry = expiry;
+      await provider.save();
+    }
 
     await sendEmail(
       email,
@@ -464,28 +462,41 @@ export const resetPassword = async (req, res) => {
     }
 
     const Provider = getProvider();
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const user = await User.findOne({ email });
-    const provider = await Provider.findOne({ email });
-    const record = user || provider;
+    const user = await User.findOne({ email: normalizedEmail });
+    const provider = await Provider.findOne({ email: normalizedEmail });
+    const activeRecords = [user, provider].filter(Boolean);
 
-    if (!record) {
+    if (activeRecords.length === 0) {
       return res.status(400).json({ message: "Invalid OTP or email" });
     }
 
-    if (!record.resetOtp || record.resetOtp !== otp) {
+    // Check OTP on the first valid record (they both have the same OTP)
+    const primaryRecord = activeRecords[0];
+    if (!primaryRecord.resetOtp || primaryRecord.resetOtp !== otp) {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    if (!record.resetOtpExpiry || record.resetOtpExpiry < new Date()) {
+    if (!primaryRecord.resetOtpExpiry || primaryRecord.resetOtpExpiry < new Date()) {
       return res.status(400).json({ message: "OTP has expired. Please request a new one." });
     }
 
     const hashed = await bcrypt.hash(password, 10);
-    record.password = hashed;
-    record.resetOtp = null;
-    record.resetOtpExpiry = null;
-    await record.save();
+
+    // Apply new password to BOTH collections if the user has dual accounts
+    if (user) {
+        user.password = hashed;
+        user.resetOtp = null;
+        user.resetOtpExpiry = null;
+        await user.save();
+    }
+    if (provider) {
+        provider.password = hashed;
+        provider.resetOtp = null;
+        provider.resetOtpExpiry = null;
+        await provider.save();
+    }
 
     res.json({ message: "Password reset successful." });
   } catch (err) {

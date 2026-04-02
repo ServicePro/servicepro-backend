@@ -2,25 +2,7 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import sendEmail from "../utils/sendEmail.js";
 
-// Provider Schema
-const providerSchema = new mongoose.Schema({
-  name:         { type: String, required: true },
-  email:        { type: String, required: true, unique: true },
-  phone:        { type: String, required: true },
-  password:     { type: String, required: true },
-  category:     { type: String, required: true },
-  skills:       { type: String, required: true },
-  experience:   { type: String, required: true },
-  area:         { type: String, required: true },
-  availability: { type: String, required: true },
-  licenseFile:  { type: String, default: null },   // stored file path
-  idProofFile:  { type: String, default: null },   // stored file path
-  status:       { type: String, default: "pending" }, // pending | approved | rejected
-  resetOtp:     { type: String, default: null },
-  resetOtpExpiry: { type: Date, default: null }
-}, { timestamps: true });
-
-const Provider = mongoose.model("Provider", providerSchema);
+import Provider from "../models/Provider.js";
 export { Provider };
 
 // ── Register Provider ─────────────────────────────────────────────────────────
@@ -187,4 +169,53 @@ export const approveProvider = async (req, res) => {
     console.error("Error updating provider status:", error);
     res.status(500).json({ msg: "Server error" });
   }
+};
+
+// ── Get Provider Profile ─────────────────────────────────────────────
+export const getMe = async (req, res, next) => {
+  try {
+    const provider = await Provider.findById(req.user.id).select('-password');
+    if (!provider) return res.status(404).json({ success: false, message: 'Provider not found.' });
+    
+    const providerData = provider.toObject();
+    providerData.id = providerData._id;
+    res.json({ success: true, data: { provider: providerData } });
+  } catch (error) { next(error); }
+};
+
+export const updateProfile = async (req, res, next) => {
+  try {
+    const provider = await Provider.findById(req.user.id);
+    if (!provider) return res.status(404).json({ success: false, message: 'Provider not found.' });
+    
+    const updates = ['name', 'phone', 'category', 'bio', 'skills', 'experience', 'area', 'availability'];
+    updates.forEach(field => {
+       if (req.body[field] !== undefined) provider[field] = req.body[field];
+    });
+
+    await provider.save();
+    const providerData = provider.toObject();
+    delete providerData.password;
+    providerData.id = providerData._id;
+    res.json({ success: true, message: 'Profile updated.', data: { provider: providerData } });
+  } catch (error) { next(error); }
+};
+
+export const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ success: false, message: 'Required fields missing' });
+
+    const provider = await Provider.findById(req.user.id);
+    if (!provider) return res.status(404).json({ success: false, message: 'Provider not found.' });
+
+    const isMatch = await bcrypt.compare(currentPassword, provider.password);
+    if (!isMatch) return res.status(400).json({ success: false, message: 'Incorrect current password' });
+
+    const salt = await bcrypt.genSalt(10);
+    provider.password = await bcrypt.hash(newPassword, salt);
+    await provider.save();
+
+    res.json({ success: true, message: 'Password changed successfully.' });
+  } catch (error) { next(error); }
 };

@@ -1,15 +1,3 @@
-// import mongoose from "mongoose";
-
-// const userSchema = new mongoose.Schema({
-//   name: String,
-//   email: { type: String, unique: true },
-//   password: String,
-//   isVerified: { type: Boolean, default: false },
-//   googleId: { type: String, default: null }
-// }, { timestamps: true });
-
-// export default mongoose.model("User", userSchema);
-
 import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema({
