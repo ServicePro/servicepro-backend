@@ -1,15 +1,21 @@
 import express from "express";
 import {
   getPendingProviders,
-  approveProvider
-} from "../controllers/providerController.js";
+  approveProvider,
+  rejectProvider
+} from "../controllers/adminController.js";
+
+import { protect, adminOnly } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Get pending providers for admin review
-router.get("/pending-providers", getPendingProviders);
+// 📥 Get all pending providers
+router.get("/providers", protect, adminOnly, getPendingProviders);
 
-// Approve or reject provider
-router.post("/approve-provider/:id", approveProvider);
+// ✅ Approve provider
+router.put("/approve/:id", protect, adminOnly, approveProvider);
+
+// ❌ Reject provider
+router.put("/reject/:id", protect, adminOnly, rejectProvider);
 
 export default router;

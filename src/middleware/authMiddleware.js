@@ -1,7 +1,8 @@
 import jwt from 'jsonwebtoken';
 import Provider from '../models/Provider.js';
+import User from '../models/User.js';
 
-// ── Protect routes: validate JWT ─────────────────────────────
+// ── Protect routes ─────────────────────────────
 const protect = async (req, res, next) => {
   try {
     let token;
@@ -17,24 +18,51 @@ const protect = async (req, res, next) => {
       });
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'servicepro_super_secret_jwt_key_change_in_production');
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || 'servicepro_super_secret_jwt_key_change_in_production'
+    );
 
-    // Attach provider from DB to request
-    const provider = await Provider.findOne({ _id: decoded.id, is_active: true });
+    let account = null;
+    let role = null;
 
-    if (!provider) {
+    // ✅ Provider (ONLY approved)
+    account = await Provider.findOne({
+      _id: decoded.id,
+      is_active: true,
+      status: "approved"
+    });
+
+    if (account) {
+      role = "provider";
+    } else {
+      // ✅ User
+      account = await User.findOne({
+        _id: decoded.id,
+        isVerified: true
+      });
+
+      if (account) {
+        role = account.role || "user";
+      }
+    }
+
+    if (!account) {
       return res.status(401).json({
         success: false,
-        message: 'Provider account not found or deactivated.',
+        message: 'Account not found, not approved, or deactivated.',
       });
     }
 
-    // Attach user obj structure so standard controllers (req.user.id) can use it seamlessly
-    req.user = { id: provider._id.toString() }; 
-    req.provider = provider; // keep backwards compatibility
+    req.user = {
+      id: account._id.toString(),
+      role
+    };
+
+    req.provider = account;
 
     next();
+
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({
@@ -50,4 +78,16 @@ const protect = async (req, res, next) => {
   }
 };
 
-export { protect };
+// ── Admin only ─────────────────────────────
+const adminOnly = (req, res, next) => {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({
+      success: false,
+      message: "Access denied. Admin only.",
+    });
+  }
+  next();
+};
+
+// ✅ EXPORTS (THIS FIXES YOUR ERROR)
+export { protect, adminOnly };

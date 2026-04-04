@@ -1,5 +1,4 @@
 import Service from '../models/Service.js';
-import mongoose from 'mongoose';
 
 // Create a new service
 const createService = async (req, res, next) => {
@@ -148,11 +147,130 @@ const deleteService = async (req, res, next) => {
   }
 };
 
+const getPublicServices = async (req, res, next) => {
+  try {
+    const {
+      search,
+      category,
+      location,
+      minPrice,
+      maxPrice,
+      rating,
+      sort = "rating",
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    let query = { status: "active" };
+
+    // 🔍 FULL TEXT SEARCH
+    if (search) {
+      query.$text = { $search: search };
+    }
+
+    // 🏷 CATEGORY
+    if (category) {
+      query.category = category;
+    }
+
+    // 📍 LOCATION (NEW)
+    if (location) {
+      query["location.city"] = new RegExp(location, "i");
+    }
+
+    // 💰 PRICE RANGE
+    if (minPrice || maxPrice) {
+      query.price = {};
+      if (minPrice) query.price.$gte = Number(minPrice);
+      if (maxPrice) query.price.$lte = Number(maxPrice);
+    }
+
+    // ⭐ RATING FILTER (NEW)
+    if (rating) {
+      query.rating = { $gte: Number(rating) };
+    }
+
+    const skip = (page - 1) * limit;
+
+    // 🔽 SORTING (UPGRADED)
+    let sortOption = {};
+
+    switch (sort) {
+      case "price_low":
+        sortOption.price = 1;
+        break;
+      case "price_high":
+        sortOption.price = -1;
+        break;
+      case "newest":
+        sortOption.createdAt = -1;
+        break;
+      case "popular":
+        sortOption.total_bookings = -1;
+        break;
+      default:
+        sortOption.rating = -1;
+    }
+
+    const services = await Service.find(query)
+      .populate("providerId", "name")
+      .sort(sortOption)
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Service.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: {
+        services,
+        pagination: {
+          total,
+          page: Number(page),
+          pages: Math.ceil(total / limit),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getFeaturedServices = async (req, res, next) => {
+  try {
+    const services = await Service.find({
+      featured: true,
+      status: "active",
+    }).limit(8);
+
+    res.json({
+      success: true,
+      data: { services },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getSearchSuggestions = async (req, res, next) => {
+  try {
+    // placeholder - implement search suggestion logic
+    res.json({ success: true, data: { suggestions: [] } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getTopServices = async (req, res, next) => {
+  try {
+    // placeholder - implement top services logic
+    res.json({ success: true, data: { services: [] } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 export {
-  createService,
-  getAllServices,
-  getServiceById,
-  updateService,
-  toggleServiceStatus,
-  deleteService,
+  createService, deleteService, getAllServices, getFeaturedServices, getPublicServices, getSearchSuggestions, getServiceById, getTopServices, toggleServiceStatus, updateService
 };
