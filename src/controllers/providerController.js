@@ -188,7 +188,7 @@ export const updateProfile = async (req, res, next) => {
     const provider = await Provider.findById(req.user.id);
     if (!provider) return res.status(404).json({ success: false, message: 'Provider not found.' });
     
-    const updates = ['name', 'phone', 'category', 'bio', 'skills', 'experience', 'area', 'availability'];
+    const updates = ['name', 'phone', 'category'];
     updates.forEach(field => {
        if (req.body[field] !== undefined) provider[field] = req.body[field];
     });
