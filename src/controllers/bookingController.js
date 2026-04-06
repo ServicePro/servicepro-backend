@@ -7,7 +7,7 @@ export const createBooking = async (req, res, next) => {
       userId: req.user.id,
       serviceId,
       providerId,
-      date,
+      date: new Date(date), // Ensure date is parsed as Date object
       time,
       location,
       amount

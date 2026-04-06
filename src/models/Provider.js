@@ -21,7 +21,7 @@ const ProviderSchema = new mongoose.Schema({
   idProofFile: { type: String, default: null },
   
   // Auto-approved for Dev testing
-  status: { type: String, default: 'approved' },
+  status: { type: String, default: 'pending' },
   
   // OTP logic
   resetOtp: { type: String, default: null },

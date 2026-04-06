@@ -1,15 +1,15 @@
 import express from 'express';
-import { protect } from '../middleware/authMiddleware.js';
-import { 
-  createBooking, 
-  getBookingById, 
-  updatePaymentStatus, 
-  updateTrackingStatus 
+import {
+    createBooking,
+    getBookingById,
+    updatePaymentStatus,
+    updateTrackingStatus
 } from '../controllers/bookingController.js';
+import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-router.post('/',  createBooking);
+router.post('/', protect, createBooking);
 router.get('/:id', protect, getBookingById);
 router.put('/:id/payment', protect, updatePaymentStatus);
 router.put('/:id/status', protect, updateTrackingStatus);

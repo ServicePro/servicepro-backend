@@ -1,27 +1,49 @@
 import express from "express";
-import {
-  getPendingProviders,
-  approveProvider
-} from "../controllers/providerController.js";
+
 import {
   getAdminStats,
   getAllUsers,
   toggleUserStatus,
-  getGlobalAnalytics
+  getGlobalAnalytics,
+  getPendingProviders,
+  approveProvider,
+  rejectProvider
 } from "../controllers/adminController.js";
+
+import { protect, adminOnly } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Stats and Users
-router.get("/stats", getAdminStats);
-router.get("/users", getAllUsers);
-router.patch("/users/:id/status", toggleUserStatus);
-router.get("/analytics", getGlobalAnalytics);
 
-// Get pending providers for admin review
-router.get("/pending-providers", getPendingProviders);
+// ==============================
+// 🔐 ALL ROUTES PROTECTED (ADMIN ONLY)
+// ==============================
 
-// Approve or reject provider
-router.post("/approve-provider/:id", approveProvider);
+// 📊 Dashboard stats
+router.get("/stats", protect, adminOnly, getAdminStats);
+
+// 👥 All users + providers
+router.get("/users", protect, adminOnly, getAllUsers);
+
+// 🔄 Toggle user/provider status
+router.patch("/users/:id/status", protect, adminOnly, toggleUserStatus);
+
+// 📈 Analytics
+router.get("/analytics", protect, adminOnly, getGlobalAnalytics);
+
+
+// ==============================
+// 🧑‍🔧 PROVIDER MANAGEMENT
+// ==============================
+
+// 📥 Pending providers
+router.get("/providers/pending", protect, adminOnly, getPendingProviders);
+
+// ✅ Approve provider
+router.put("/providers/approve/:id", protect, adminOnly, approveProvider);
+
+// ❌ Reject provider
+router.put("/providers/reject/:id", protect, adminOnly, rejectProvider);
+
 
 export default router;
