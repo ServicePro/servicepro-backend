@@ -1,23 +1,23 @@
 import express from "express";
+import fs from "fs";
 import multer from "multer";
 import path from "path";
-import fs from "fs";
 import { protect } from "../middleware/authMiddleware.js";
 
 import {
-  // 🔒 Provider
-  getAllServices,
-  getServiceById,
-  createService,
-  updateService,
-  toggleServiceStatus,
-  deleteService,
-
-  // 🌍 Public (NEW)
-  getPublicServices,
-  getFeaturedServices,
-  getSearchSuggestions,
-  getTopServices,
+    createService,
+    deleteService,
+    // 🔒 Provider
+    getAllServices,
+    getFeaturedServices,
+    getPublicServiceById,
+    // 🌍 Public (NEW)
+    getPublicServices,
+    getSearchSuggestions,
+    getServiceById,
+    getTopServices,
+    toggleServiceStatus,
+    updateService,
 } from "../controllers/serviceController.js";
 
 const router = express.Router();
@@ -63,6 +63,7 @@ const upload = multer({
 
 // 🔍 Get all services (with filters)
 router.get("/public", getPublicServices);
+router.get("/public/:id", getPublicServiceById);
 
 // ⭐ Featured services (homepage)
 router.get("/featured", getFeaturedServices);

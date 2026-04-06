@@ -236,6 +236,23 @@ const getPublicServices = async (req, res, next) => {
   }
 };
 
+const getPublicServiceById = async (req, res, next) => {
+  try {
+    const service = await Service.findOne({ _id: req.params.id, status: "active" }).populate("providerId", "name");
+
+    if (!service) {
+      return res.status(404).json({ success: false, message: "Service not found." });
+    }
+
+    res.json({
+      success: true,
+      data: { service },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getFeaturedServices = async (req, res, next) => {
   try {
     const services = await Service.find({
@@ -272,5 +289,13 @@ const getTopServices = async (req, res, next) => {
 
 
 export {
-  createService, deleteService, getAllServices, getFeaturedServices, getPublicServices, getSearchSuggestions, getServiceById, getTopServices, toggleServiceStatus, updateService
+    createService,
+    deleteService,
+    getAllServices,
+    getFeaturedServices, getPublicServiceById, getPublicServices, getSearchSuggestions,
+    getServiceById,
+    getTopServices,
+    toggleServiceStatus,
+    updateService
 };
+

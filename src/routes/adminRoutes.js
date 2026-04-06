@@ -1,5 +1,10 @@
 import express from "express";
+
 import {
+  getAdminStats,
+  getAllUsers,
+  toggleUserStatus,
+  getGlobalAnalytics,
   getPendingProviders,
   approveProvider,
   rejectProvider
@@ -9,13 +14,36 @@ import { protect, adminOnly } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// 📥 Get all pending providers
-router.get("/providers", protect, adminOnly, getPendingProviders);
+
+// ==============================
+// 🔐 ALL ROUTES PROTECTED (ADMIN ONLY)
+// ==============================
+
+// 📊 Dashboard stats
+router.get("/stats", protect, adminOnly, getAdminStats);
+
+// 👥 All users + providers
+router.get("/users", protect, adminOnly, getAllUsers);
+
+// 🔄 Toggle user/provider status
+router.patch("/users/:id/status", protect, adminOnly, toggleUserStatus);
+
+// 📈 Analytics
+router.get("/analytics", protect, adminOnly, getGlobalAnalytics);
+
+
+// ==============================
+// 🧑‍🔧 PROVIDER MANAGEMENT
+// ==============================
+
+// 📥 Pending providers
+router.get("/providers/pending", protect, adminOnly, getPendingProviders);
 
 // ✅ Approve provider
-router.put("/approve/:id", protect, adminOnly, approveProvider);
+router.put("/providers/approve/:id", protect, adminOnly, approveProvider);
 
 // ❌ Reject provider
-router.put("/reject/:id", protect, adminOnly, rejectProvider);
+router.put("/providers/reject/:id", protect, adminOnly, rejectProvider);
+
 
 export default router;
