@@ -1,5 +1,15 @@
-import User from "../models/User.js";
 import jwt from "jsonwebtoken";
+import User from "../models/User.js";
+
+const serializeUser = (user) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  phone: user.phone || "",
+  role: user.role,
+  avatar_url: user.avatar_url || null,
+  isVerified: user.isVerified,
+});
 
 // 🔐 Generate JWT
 const generateToken = (id) => {
@@ -64,9 +74,13 @@ export const getUserProfile = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
 
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
     res.json({
       success: true,
-      data: { user },
+      data: { user: serializeUser(user) },
     });
   } catch (error) {
     next(error);
@@ -82,8 +96,22 @@ export const updateUserProfile = async (req, res, next) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    user.name = req.body.name || user.name;
-    user.email = req.body.email || user.email;
+    const nextEmail = req.body.email?.trim()?.toLowerCase();
+
+    if (nextEmail && nextEmail !== user.email) {
+      const existingUser = await User.findOne({ email: nextEmail, _id: { $ne: user._id } });
+      if (existingUser) {
+        return res.status(400).json({ message: "Email is already in use." });
+      }
+      user.email = nextEmail;
+    }
+
+    user.name = req.body.name?.trim() || user.name;
+    user.phone = req.body.phone?.trim?.() ?? user.phone;
+
+    if (req.file) {
+      user.avatar_url = `/uploads/users/${req.file.filename}`;
+    }
 
     if (req.body.password) {
       user.password = req.body.password;
@@ -93,11 +121,7 @@ export const updateUserProfile = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        _id: updatedUser._id,
-        name: updatedUser.name,
-        email: updatedUser.email,
-      },
+      data: { user: serializeUser(updatedUser) },
     });
   } catch (error) {
     next(error);
