@@ -1,8 +1,7 @@
-import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import User from "../models/User.js";
 import sendEmail from "../utils/sendEmail.js";
-import mongoose from "mongoose";
 
 import Provider from "../models/Provider.js";
 
@@ -124,7 +123,14 @@ export const loginUser = async (req, res) => {
       const token = jwt.sign({ id: userRecord._id, role: userRecord.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
       return res.json({
         token,
-        user: { id: userRecord._id, name: userRecord.name, email: userRecord.email, role: userRecord.role }
+        user: {
+          id: userRecord._id,
+          name: userRecord.name,
+          email: userRecord.email,
+          role: userRecord.role,
+          phone: userRecord.phone || "",
+          avatar_url: userRecord.avatar_url || null,
+        }
       });
     }
 
@@ -237,7 +243,14 @@ export const googleAuth = async (req, res) => {
     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
     return res.json({
       token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role },
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone || "",
+        avatar_url: user.avatar_url || null,
+      },
       message: "Google sign-in successful"
     });
 

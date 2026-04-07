@@ -1,4 +1,3 @@
-import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 import path from "path";
 import fs from "fs";
@@ -91,9 +90,68 @@ export const getUserProfile = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
 
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
     res.json({
       success: true,
-      data: { user },
+      data: { user: serializeUser(user) },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 🔔 Get user notifications derived from provider booking updates
+export const getUserNotifications = async (req, res, next) => {
+  try {
+    const bookings = await Booking.find({ userId: req.user.id })
+      .populate("serviceId", "name")
+      .populate("providerId", "name")
+      .sort({ updatedAt: -1 })
+      .limit(12);
+
+    const notifications = bookings.map((booking) => {
+      const providerName = booking.providerId?.name || "Your provider";
+      const serviceName = booking.serviceId?.name || "service";
+      const status = booking.status || "PENDING";
+
+      let message = `${providerName} sent an update about your ${serviceName} booking.`;
+      let type = "info";
+
+      if (status === "ACCEPTED") {
+        message = `${providerName} accepted your booking for ${serviceName}.`;
+        type = "success";
+      } else if (status === "ONGOING") {
+        message = `${providerName} has started working on your ${serviceName} request.`;
+        type = "info";
+      } else if (status === "COMPLETED") {
+        message = `${providerName} marked your ${serviceName} service as completed.`;
+        type = "success";
+      } else if (status === "CANCELLED") {
+        message = `${providerName} cancelled your ${serviceName} booking.`;
+        type = "warning";
+      } else if (status === "PENDING") {
+        message = `Your ${serviceName} booking is pending provider confirmation.`;
+        type = "info";
+      }
+
+      return {
+        id: booking._id,
+        bookingId: booking._id,
+        status,
+        type,
+        providerName,
+        serviceName,
+        message,
+        createdAt: booking.updatedAt || booking.createdAt,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: { notifications },
     });
   } catch (error) {
     next(error);
