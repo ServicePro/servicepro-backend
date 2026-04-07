@@ -3,6 +3,7 @@ import fs from "fs";
 import multer from "multer";
 import path from "path";
 import {
+    getUserNotifications,
     getUserProfile,
     loginUser,
     registerUser,
@@ -46,6 +47,7 @@ router.post("/register", registerUser);
 router.post("/login", loginUser);
 
 // 🔒 Protected
+router.get("/notifications", protect, getUserNotifications);
 router.get("/profile", protect, getUserProfile);
 router.put("/profile", protect, upload.single("avatar"), updateUserProfile);
 
