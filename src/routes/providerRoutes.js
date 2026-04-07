@@ -5,7 +5,8 @@ import {
   approveProvider,
   getMe,
   updateProfile,
-  changePassword
+  changePassword,
+  searchProviders
 } from "../controllers/providerController.js";
 import { uploadProviderDocs } from "../middleware/uploadMiddleware.js";
 import { protect } from "../middleware/authMiddleware.js";
@@ -18,6 +19,9 @@ router.post("/register", uploadProviderDocs, registerProvider);
 // Admin routes
 router.get("/pending-providers", getPendingProviders);
 router.post("/approve-provider/:id", approveProvider);
+
+// Public search (used by user chat "New Conversation" modal)
+router.get("/search", searchProviders);
 
 // Provider authenticated routes
 router.get("/me", protect, getMe);

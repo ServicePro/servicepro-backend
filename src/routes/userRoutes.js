@@ -4,6 +4,8 @@ import {
   loginUser,
   getUserProfile,
   updateUserProfile,
+  uploadAvatar,
+  uploadAvatarMiddleware,
 } from "../controllers/userController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
@@ -15,7 +17,8 @@ router.post("/register", registerUser);
 router.post("/login", loginUser);
 
 // 🔒 Protected
-router.get("/profile", protect, getUserProfile);
-router.put("/profile", protect, updateUserProfile);
+router.get("/profile",  protect, getUserProfile);
+router.put("/profile",  protect, updateUserProfile);
+router.post("/avatar",  protect, uploadAvatarMiddleware, uploadAvatar);
 
 export default router;

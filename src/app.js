@@ -19,6 +19,10 @@ import serviceRoutes from "./routes/serviceRoutes.js";
 import appointmentRoutes from "./routes/appointmentRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
+import chatRoutes from "./routes/chatRoutes.js";
+import reviewRoutes from "./routes/reviewRoutes.js";import appReviewRoutes from './routes/appReviewRoutes.js';import subscriptionRoutes from "./routes/subscriptionRoutes.js";
+import emergencyRoutes from "./routes/emergencyRoutes.js";
+import consultationRoutes from "./routes/consultationRoutes.js";
 // ===== End of your newly added imports =====
 
 const app = express();
@@ -73,6 +77,12 @@ app.use("/api/providers", providerRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/reviews",       reviewRoutes);
+app.use("/api/app-reviews",   appReviewRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
+app.use("/api/emergency",     emergencyRoutes);
+app.use("/api/consultations", consultationRoutes);
 
 /* =========================================================
    YOUR NEWLY ADDED ERROR HANDLERS

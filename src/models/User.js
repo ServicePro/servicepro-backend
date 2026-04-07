@@ -11,6 +11,13 @@ const userSchema = new mongoose.Schema({
 
   role: { type: String, enum: ["user", "admin", "provider"], default: "user" },
 
+  // Optional profile fields
+  phone:    { type: String, default: "" },
+  bio:      { type: String, default: "" },
+  address:  { type: String, default: "" },
+  dob:      { type: String, default: "" },
+  avatarUrl:{ type: String, default: "" },
+
   googleId: { type: String, default: null },
   facebookId: { type: String, default: null },
   linkedinId: { type: String, default: null },

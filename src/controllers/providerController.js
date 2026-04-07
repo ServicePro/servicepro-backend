@@ -73,6 +73,7 @@ export const registerProvider = async (req, res) => {
     // File paths from multer
     const licenseFile = req.files?.license?.[0]?.path || null;
     const idProofFile = req.files?.idProof?.[0]?.path || null;
+    const profileImage = req.files?.profilePhoto?.[0]?.path || null;
 
     await Provider.create({
       name: name.trim(),
@@ -85,7 +86,8 @@ export const registerProvider = async (req, res) => {
       area: area.trim(),
       availability: availability.trim(),
       licenseFile,
-      idProofFile
+      idProofFile,
+      profile_image: profileImage,
     });
 
     // Confirmation email
@@ -218,4 +220,30 @@ export const changePassword = async (req, res, next) => {
 
     res.json({ success: true, message: 'Password changed successfully.' });
   } catch (error) { next(error); }
+};
+
+// ── GET /api/providers/search?q=&category= ────────────────────────────────
+// Public search used by the chat "New Conversation" modal
+export const searchProviders = async (req, res) => {
+  try {
+    const { q = "", category = "" } = req.query;
+    const filter = { status: "approved" };
+    if (q.trim()) {
+      filter.$or = [
+        { name:     { $regex: q.trim(), $options: "i" } },
+        { category: { $regex: q.trim(), $options: "i" } },
+        { area:     { $regex: q.trim(), $options: "i" } },
+      ];
+    }
+    if (category.trim()) filter.category = { $regex: category.trim(), $options: "i" };
+
+    const providers = await Provider.find(filter)
+      .select("_id name category area rating profile_image")
+      .limit(20)
+      .lean();
+
+    res.json({ success: true, data: providers });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 };

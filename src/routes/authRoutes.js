@@ -4,6 +4,7 @@ import {
   verifyUser,
   loginUser,
   googleAuth,
+  resolveSocialLogin,
   linkedinInitiate,
   linkedinCallback,
   facebookInitiate,
@@ -25,6 +26,9 @@ router.post("/reset", resetPassword);
 
 // Google (access-token flow via frontend SDK)
 router.post("/google", googleAuth);
+
+// Resolve ambiguous social login (user chose role in frontend modal)
+router.post("/social-resolve", resolveSocialLogin);
 
 // LinkedIn (server-side code exchange)
 router.get("/linkedin", linkedinInitiate);
