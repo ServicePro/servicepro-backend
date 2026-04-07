@@ -3,11 +3,12 @@ import fs from "fs";
 import multer from "multer";
 import path from "path";
 import {
-    getUserNotifications,
-    getUserProfile,
-    loginUser,
-    registerUser,
-    updateUserProfile,
+  registerUser,
+  loginUser,
+  getUserProfile,
+  updateUserProfile,
+  uploadAvatar,
+  uploadAvatarMiddleware,
 } from "../controllers/userController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
@@ -47,8 +48,8 @@ router.post("/register", registerUser);
 router.post("/login", loginUser);
 
 // 🔒 Protected
-router.get("/notifications", protect, getUserNotifications);
-router.get("/profile", protect, getUserProfile);
-router.put("/profile", protect, upload.single("avatar"), updateUserProfile);
+router.get("/profile",  protect, getUserProfile);
+router.put("/profile",  protect, updateUserProfile);
+router.post("/avatar",  protect, uploadAvatarMiddleware, uploadAvatar);
 
 export default router;

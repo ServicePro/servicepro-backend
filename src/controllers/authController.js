@@ -179,7 +179,7 @@ export const verifyUser = async (req, res) => {
 // Google OAuth sign-up / sign-in
 export const googleAuth = async (req, res) => {
   try {
-    const { accessToken } = req.body;
+    const { accessToken, loginAs } = req.body;
     if (!accessToken) {
       return res.status(400).json({ message: "Access token required" });
     }
@@ -199,8 +199,33 @@ export const googleAuth = async (req, res) => {
       return res.status(400).json({ message: "Could not retrieve email from Google" });
     }
 
-    // Find or create the user
-    let user = await User.findOne({ email });
+    const userRecord    = await User.findOne({ email });
+    const providerRecord = await Provider.findOne({ email });
+
+    // Email exists in both — ask the frontend which role to use
+    if (userRecord && providerRecord && !loginAs) {
+      return res.json({ ambiguous: true });
+    }
+
+    // ── Provider path ──────────────────────────────────────────────────────
+    if (loginAs === "provider" || (!loginAs && !userRecord && providerRecord)) {
+      if (!providerRecord) {
+        return res.status(404).json({ message: "No provider account found for this Google account." });
+      }
+      if (!providerRecord.googleId) {
+        providerRecord.googleId = googleId;
+        await providerRecord.save();
+      }
+      const token = jwt.sign({ id: providerRecord._id, role: "provider" }, process.env.JWT_SECRET, { expiresIn: "7d" });
+      return res.json({
+        token,
+        user: { id: providerRecord._id, name: providerRecord.name, email: providerRecord.email, role: "provider" },
+        message: "Google sign-in successful"
+      });
+    }
+
+    // ── User path (default) ────────────────────────────────────────────────
+    let user = userRecord;
     if (!user) {
       user = await User.create({
         name,
@@ -209,20 +234,14 @@ export const googleAuth = async (req, res) => {
         isVerified: true,
         googleId
       });
-    } else if (user.isVerified && !user.googleId) {
-      // Email already registered via normal signup — block duplicate
-      return res.status(400).json({
-        message: "This email is already registered. Please sign in with your password instead."
-      });
     } else if (!user.googleId) {
-      // Unverified normal account — link Google and verify
       user.googleId = googleId;
       user.isVerified = true;
       await user.save();
     }
 
     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
-    res.json({
+    return res.json({
       token,
       user: {
         id: user._id,
@@ -241,13 +260,96 @@ export const googleAuth = async (req, res) => {
   }
 };
 
+// ─── Resolve social login when ambiguous (user chose role in frontend modal) ──
+export const resolveSocialLogin = async (req, res) => {
+  try {
+    const { pendingToken, loginAs } = req.body;
+    if (!pendingToken || !loginAs) {
+      return res.status(400).json({ message: "pendingToken and loginAs are required" });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(pendingToken, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ message: "Session expired. Please sign in again." });
+    }
+
+    if (!decoded.pending) {
+      return res.status(400).json({ message: "Invalid token" });
+    }
+
+    const { email, providerIdField, providerId } = decoded;
+
+    if (loginAs === "provider") {
+      const providerRecord = await Provider.findOne({ email });
+      if (!providerRecord) return res.status(404).json({ message: "Provider account not found" });
+      if (providerIdField && !providerRecord[providerIdField]) {
+        providerRecord[providerIdField] = providerId;
+        await providerRecord.save();
+      }
+      const token = jwt.sign({ id: providerRecord._id, role: "provider" }, process.env.JWT_SECRET, { expiresIn: "7d" });
+      return res.json({
+        token,
+        user: { id: providerRecord._id, name: providerRecord.name, email: providerRecord.email, role: "provider" }
+      });
+    } else {
+      const user = await User.findOne({ email });
+      if (!user) return res.status(404).json({ message: "User account not found" });
+      if (providerIdField && !user[providerIdField]) {
+        user[providerIdField] = providerId;
+        await user.save();
+      }
+      const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
+      return res.json({
+        token,
+        user: { id: user._id, name: user.name, email: user.email, role: user.role }
+      });
+    }
+  } catch (err) {
+    console.error("Resolve social login error:", err.message);
+    res.status(500).json({ message: "Failed to complete sign-in" });
+  }
+};
+
 // ─── Shared helper for server-side social OAuth (LinkedIn, Facebook) ──────────
 const FRONTEND = () => process.env.FRONTEND_URL || "http://localhost:5173";
 
-const handleSocialUser = async (res, { email, name, providerIdField, providerId }) => {
+const handleSocialUser = async (res, { email, name, providerIdField, providerId, loginAs }) => {
   try {
-    let user = await User.findOne({ email });
+    const userRecord     = await User.findOne({ email });
+    const providerRecord = await Provider.findOne({ email });
 
+    // Email registered in both — send back a short-lived pending token so
+    // the frontend can ask the user which role they want
+    if (userRecord && providerRecord && !loginAs) {
+      const pendingToken = jwt.sign(
+        { email, name, providerIdField, providerId, pending: true },
+        process.env.JWT_SECRET,
+        { expiresIn: "10m" }
+      );
+      return res.redirect(
+        `${FRONTEND()}/auth/callback?ambiguous=1&pendingToken=${pendingToken}&name=${encodeURIComponent(name || email)}`
+      );
+    }
+
+    // ── Provider path ──────────────────────────────────────────────────────
+    if (loginAs === "provider" || (!loginAs && !userRecord && providerRecord)) {
+      if (!providerRecord) {
+        return res.redirect(`${FRONTEND()}/auth/callback?error=server_error`);
+      }
+      if (!providerRecord[providerIdField]) {
+        providerRecord[providerIdField] = providerId;
+        await providerRecord.save();
+      }
+      const token = jwt.sign({ id: providerRecord._id, role: "provider" }, process.env.JWT_SECRET, { expiresIn: "7d" });
+      return res.redirect(
+        `${FRONTEND()}/auth/callback?token=${token}&name=${encodeURIComponent(providerRecord.name)}&role=provider`
+      );
+    }
+
+    // ── User path (default) ────────────────────────────────────────────────
+    let user = userRecord;
     if (!user) {
       user = await User.create({
         name: name || email.split("@")[0],

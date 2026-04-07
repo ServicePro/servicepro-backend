@@ -1,4 +1,5 @@
 import Booking from '../models/Booking.js';
+import { awardLoyaltyPoints } from './subscriptionController.js';
 
 export const createBooking = async (req, res, next) => {
   try {
@@ -47,7 +48,20 @@ export const updatePaymentStatus = async (req, res, next) => {
     if (!booking) {
       return res.status(404).json({ success: false, message: 'Booking not found.' });
     }
-    res.json({ success: true, data: booking });
+
+    // Award progressive loyalty points: booking #N earns N×5 pts
+    const completedCount = await Booking.countDocuments({
+      userId: booking.userId,
+      status: { $in: ['ACCEPTED', 'ONGOING', 'COMPLETED'] },
+    });
+    const points = completedCount * 5; // 1st=5, 2nd=10, 3rd=15 …
+    await awardLoyaltyPoints(
+      booking.userId.toString(),
+      points,
+      `Booking #${completedCount} reward`
+    );
+
+    res.json({ success: true, data: booking, loyaltyPointsEarned: points });
   } catch (error) {
     next(error);
   }
@@ -65,6 +79,18 @@ export const updateTrackingStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Booking not found.' });
     }
     res.json({ success: true, data: booking });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getUserBookings = async (req, res, next) => {
+  try {
+    const bookings = await Booking.find({ userId: req.user.id })
+      .populate('serviceId', 'name category price')
+      .populate('providerId', 'name email phone')
+      .sort({ createdAt: -1 });
+    res.json({ success: true, data: bookings });
   } catch (error) {
     next(error);
   }

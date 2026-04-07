@@ -15,6 +15,7 @@ import {
     getPublicServices,
     getSearchSuggestions,
     getServiceById,
+    getServiceCategories,
     getTopServices,
     toggleServiceStatus,
     updateService,
@@ -71,7 +72,10 @@ router.get("/featured", getFeaturedServices);
 // 🔥 Top / trending services
 router.get("/top", getTopServices);
 
-// 💡 Search suggestions (auto-complete)
+// � All distinct categories
+router.get("/categories", getServiceCategories);
+
+// �💡 Search suggestions (auto-complete)
 router.get("/search/suggestions", getSearchSuggestions);
 
 

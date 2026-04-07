@@ -163,9 +163,14 @@ const getPublicServices = async (req, res, next) => {
 
     let query = { status: "active" };
 
-    // 🔍 FULL TEXT SEARCH
+    // 🔍 SEARCH — regex on name, category, description (no text index required)
     if (search) {
-      query.$text = { $search: search };
+      const re = new RegExp(search.trim(), 'i');
+      query.$or = [
+        { name: re },
+        { category: re },
+        { description: re },
+      ];
     }
 
     // 🏷 CATEGORY
@@ -271,8 +276,19 @@ const getFeaturedServices = async (req, res, next) => {
 
 const getSearchSuggestions = async (req, res, next) => {
   try {
-    // placeholder - implement search suggestion logic
-    res.json({ success: true, data: { suggestions: [] } });
+    const { q } = req.query;
+    if (!q || !q.trim()) return res.json([]);
+
+    const re = new RegExp(q.trim(), 'i');
+    const results = await Service.find({
+      status: 'active',
+      $or: [{ name: re }, { category: re }],
+    })
+      .select('name category')
+      .limit(8)
+      .lean();
+
+    res.json(results);
   } catch (error) {
     next(error);
   }
@@ -287,6 +303,20 @@ const getTopServices = async (req, res, next) => {
   }
 };
 
+// GET /api/services/categories  (public — no auth)
+const getServiceCategories = async (req, res, next) => {
+  try {
+    const categories = await Service.aggregate([
+      { $match: { status: 'active' } },
+      { $group: { _id: '$category', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $project: { _id: 0, category: '$_id', count: 1 } },
+    ]);
+    res.json({ success: true, data: categories });
+  } catch (error) {
+    next(error);
+  }
+};
 
 export {
     createService,
@@ -294,6 +324,7 @@ export {
     getAllServices,
     getFeaturedServices, getPublicServiceById, getPublicServices, getSearchSuggestions,
     getServiceById,
+    getServiceCategories,
     getTopServices,
     toggleServiceStatus,
     updateService

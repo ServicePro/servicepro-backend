@@ -16,14 +16,14 @@ const storage = multer.diskStorage({
   }
 });
 
-const allowedTypes = /jpeg|jpg|png|pdf/;
+const allowedTypes = /jpeg|jpg|png|pdf|webp/;
 
 const fileFilter = (_req, file, cb) => {
   const ext = path.extname(file.originalname).toLowerCase();
   if (allowedTypes.test(ext)) {
     cb(null, true);
   } else {
-    cb(new Error("Only JPEG, PNG, or PDF files are allowed."));
+    cb(new Error("Only JPEG, PNG, WebP, or PDF files are allowed."));
   }
 };
 
@@ -33,8 +33,9 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } // 5 MB
 });
 
-// Accepts license and idProof as individual file fields
+// Accepts profilePhoto, license and idProof as individual file fields
 export const uploadProviderDocs = upload.fields([
+  { name: "profilePhoto", maxCount: 1 },
   { name: "license", maxCount: 1 },
   { name: "idProof", maxCount: 1 }
 ]);

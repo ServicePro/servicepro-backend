@@ -11,6 +11,10 @@ const ReviewSchema = new mongoose.Schema({
     ref: 'Service',
     required: true,
   },
+  bookingId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Booking',
+  },
   clientId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -23,7 +27,11 @@ const ReviewSchema = new mongoose.Schema({
   },
   comment: {
     type: String,
-  }
+  },
+  providerResponse: {
+    type: String,
+    default: null,
+  },
 }, { timestamps: true });
 
 export default mongoose.models.Review || mongoose.model('Review', ReviewSchema);

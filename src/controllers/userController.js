@@ -1,16 +1,31 @@
 import jwt from "jsonwebtoken";
-import Booking from "../models/Booking.js";
-import User from "../models/User.js";
+import path from "path";
+import fs from "fs";
+import multer from "multer";
 
-const serializeUser = (user) => ({
-  _id: user._id,
-  name: user.name,
-  email: user.email,
-  phone: user.phone || "",
-  role: user.role,
-  avatar_url: user.avatar_url || null,
-  isVerified: user.isVerified,
+// ── Avatar upload ─────────────────────────────────────────────
+const avatarDir = "uploads/users";
+if (!fs.existsSync(avatarDir)) fs.mkdirSync(avatarDir, { recursive: true });
+
+const avatarStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, avatarDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `avatar_${req.user.id}_${Date.now()}${ext}`);
+  },
 });
+
+const avatarUpload = multer({
+  storage: avatarStorage,
+  fileFilter: (_req, file, cb) => {
+    const allowed = /jpeg|jpg|png|webp/;
+    if (allowed.test(path.extname(file.originalname).toLowerCase())) cb(null, true);
+    else cb(new Error("Only JPEG, PNG, or WebP images are allowed."));
+  },
+  limits: { fileSize: 4 * 1024 * 1024 }, // 4 MB
+});
+
+export const uploadAvatarMiddleware = avatarUpload.single("avatar");
 
 // 🔐 Generate JWT
 const generateToken = (id) => {
@@ -152,33 +167,60 @@ export const updateUserProfile = async (req, res, next) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const nextEmail = req.body.email?.trim()?.toLowerCase();
-
-    if (nextEmail && nextEmail !== user.email) {
-      const existingUser = await User.findOne({ email: nextEmail, _id: { $ne: user._id } });
-      if (existingUser) {
-        return res.status(400).json({ message: "Email is already in use." });
-      }
-      user.email = nextEmail;
-    }
-
-    user.name = req.body.name?.trim() || user.name;
-    user.phone = req.body.phone?.trim?.() ?? user.phone;
-
-    if (req.file) {
-      user.avatar_url = `/uploads/users/${req.file.filename}`;
-    }
+    user.name    = req.body.name    ?? user.name;
+    user.email   = req.body.email   ?? user.email;
+    user.phone   = req.body.phone   ?? user.phone;
+    user.bio     = req.body.bio     ?? user.bio;
+    user.address = req.body.address ?? user.address;
+    user.dob     = req.body.dob     ?? user.dob;
 
     if (req.body.password) {
-      user.password = req.body.password;
+      const bcrypt = await import("bcryptjs");
+      user.password = await bcrypt.default.hash(req.body.password, 10);
     }
 
     const updatedUser = await user.save();
 
     res.json({
       success: true,
-      data: { user: serializeUser(updatedUser) },
+      data: {
+        _id: updatedUser._id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        bio: updatedUser.bio,
+        address: updatedUser.address,
+        dob: updatedUser.dob,
+        avatarUrl: updatedUser.avatarUrl,
+        role: updatedUser.role,
+      },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 📷 Upload Avatar
+export const uploadAvatar = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Delete old avatar file if it exists on disk
+    if (user.avatarUrl) {
+      const oldPath = path.join(".", user.avatarUrl);
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+
+    const avatarUrl = `/uploads/users/${req.file.filename}`;
+    user.avatarUrl = avatarUrl;
+    await user.save();
+
+    res.json({ success: true, avatarUrl });
   } catch (error) {
     next(error);
   }
