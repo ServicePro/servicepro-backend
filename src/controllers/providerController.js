@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import sendEmail from "../utils/sendEmail.js";
 
@@ -195,6 +194,11 @@ export const updateProfile = async (req, res, next) => {
        if (req.body[field] !== undefined) provider[field] = req.body[field];
     });
 
+    const profilePhoto = req.files?.profilePhoto?.[0];
+    if (profilePhoto) {
+      provider.profile_image = `/${profilePhoto.path.replace(/\\/g, '/')}`;
+    }
+
     await provider.save();
     const providerData = provider.toObject();
     delete providerData.password;
@@ -240,6 +244,24 @@ export const searchProviders = async (req, res) => {
     const providers = await Provider.find(filter)
       .select("_id name category area rating profile_image")
       .limit(20)
+      .lean();
+
+    res.json({ success: true, data: providers });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── GET /api/providers/featured?limit= ─────────────────────────────────────
+export const getFeaturedProviders = async (req, res) => {
+  try {
+    const parsedLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 20) : 12;
+
+    const providers = await Provider.find({ status: { $ne: "rejected" } })
+      .select("_id name category area rating total_reviews experience skills profile_image status")
+      .sort({ createdAt: -1, rating: -1, total_reviews: -1 })
+      .limit(limit)
       .lean();
 
     res.json({ success: true, data: providers });
