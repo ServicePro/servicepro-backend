@@ -20,3 +20,4 @@ uploads/*
 # OS
 .DS_Store
 Thumbs.db
+config.bat

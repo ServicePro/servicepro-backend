@@ -1,15 +1,16 @@
 import express from "express";
 import {
-  registerProvider,
-  getPendingProviders,
-  approveProvider,
-  getMe,
-  updateProfile,
-  changePassword,
-  searchProviders
+    approveProvider,
+    changePassword,
+    getFeaturedProviders,
+    getMe,
+    getPendingProviders,
+    registerProvider,
+    searchProviders,
+    updateProfile
 } from "../controllers/providerController.js";
-import { uploadProviderDocs } from "../middleware/uploadMiddleware.js";
 import { protect } from "../middleware/authMiddleware.js";
+import { uploadProviderDocs } from "../middleware/uploadMiddleware.js";
 
 const router = express.Router();
 
@@ -21,11 +22,12 @@ router.get("/pending-providers", getPendingProviders);
 router.post("/approve-provider/:id", approveProvider);
 
 // Public search (used by user chat "New Conversation" modal)
+router.get("/featured", getFeaturedProviders);
 router.get("/search", searchProviders);
 
 // Provider authenticated routes
 router.get("/me", protect, getMe);
-router.put("/profile", protect, updateProfile);
+router.put("/profile", protect, uploadProviderDocs, updateProfile);
 router.put("/change-password", protect, changePassword);
 
 export default router;
