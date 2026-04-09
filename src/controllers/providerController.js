@@ -3,10 +3,12 @@ import bcrypt from "bcryptjs";
 import sendEmail from "../utils/sendEmail.js";
 
 import Provider from "../models/Provider.js";
+import Service from "../models/Service.js";
+import Review from "../models/Review.js";
 export { Provider };
 
 // ── Register Provider ─────────────────────────────────────────────────────────
-const VALID_CATEGORIES = ["Cleaning","Plumbing","Electrical","Carpentry","Painting","Beauty & Wellness","Home Repair","Other"];
+const VALID_CATEGORIES = ["Cleaning","Plumbing","Electrical","Carpentry","Painting","Beauty & Wellness","Home Repair","Tutoring","Health and Fitness","Childcare","Cooking","Elderly Care","Laundry","Other"];
 
 function validateProviderInput({ name, email, phone, password, category, skills, experience, area, availability }) {
   const errors = {};
@@ -88,6 +90,8 @@ export const registerProvider = async (req, res) => {
       licenseFile,
       idProofFile,
       profile_image: profileImage,
+      status: 'approved',
+      is_active: true,
     });
 
     // Confirmation email
@@ -235,14 +239,77 @@ export const searchProviders = async (req, res) => {
         { area:     { $regex: q.trim(), $options: "i" } },
       ];
     }
-    if (category.trim()) filter.category = { $regex: category.trim(), $options: "i" };
+
+    let providerIds = null;
+    if (category.trim()) {
+      // Match providers whose stored category matches OR who have an active service in that category
+      const catRegex = { $regex: category.trim(), $options: "i" };
+      const serviceProviderIds = await Service.distinct("providerId", { category: catRegex, status: "active" });
+      filter.$or = [
+        { category: catRegex },
+        { _id: { $in: serviceProviderIds } },
+      ];
+    }
 
     const providers = await Provider.find(filter)
       .select("_id name category area rating profile_image")
-      .limit(20)
+      .limit(50)
       .lean();
 
     res.json({ success: true, data: providers });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// GET /api/providers/featured?limit=12  — public, top-rated providers by real review data
+export const getFeaturedProviders = async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 12, 50);
+
+    // Aggregate real ratings per provider from the Review collection
+    const reviewStats = await Review.aggregate([
+      { $group: {
+          _id: '$providerId',
+          avgRating:    { $avg: '$rating' },
+          reviewCount:  { $sum: 1 },
+      }},
+      { $sort: { avgRating: -1, reviewCount: -1 } },
+    ]);
+
+    // Build a map of providerId -> stats
+    const statsMap = {};
+    for (const s of reviewStats) {
+      if (s._id) statsMap[String(s._id)] = s;
+    }
+
+    // Fetch all providers who have at least one review
+    const providerIdsWithReviews = reviewStats.map(s => s._id).filter(Boolean);
+
+    // Only return providers who have at least one real review, sorted by avg rating desc
+    let featured = [];
+    if (providerIdsWithReviews.length > 0) {
+      const withReviews = await Provider.find({
+        _id: { $in: providerIdsWithReviews },
+        is_active: true,
+      })
+        .select('_id name category profile_image skills experience area availability status')
+        .lean();
+
+      featured = withReviews
+        .map(p => {
+          const s = statsMap[String(p._id)] || {};
+          return {
+            ...p,
+            rating:        +(s.avgRating || 0).toFixed(1),
+            total_reviews: s.reviewCount || 0,
+          };
+        })
+        .filter(p => p.rating > 0)
+        .sort((a, b) => b.rating - a.rating || b.total_reviews - a.total_reviews);
+    }
+
+    res.json({ success: true, data: featured.slice(0, limit) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

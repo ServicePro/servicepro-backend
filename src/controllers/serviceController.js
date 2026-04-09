@@ -132,11 +132,20 @@ const toggleServiceStatus = async (req, res, next) => {
 // Delete a service
 const deleteService = async (req, res, next) => {
   try {
-    const service = await Service.findOneAndDelete({ _id: req.params.id, providerId: req.user.id });
-    
-    if (!service) {
+    if (req.user.role !== 'provider') {
+      return res.status(403).json({ success: false, message: 'Only providers can delete services.' });
+    }
+
+    // First find so we can give a descriptive error if ID is valid but belongs to someone else
+    const existing = await Service.findById(req.params.id);
+    if (!existing) {
       return res.status(404).json({ success: false, message: 'Service not found.' });
     }
+    if (existing.providerId.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'You are not authorised to delete this service.' });
+    }
+
+    await Service.findByIdAndDelete(req.params.id);
 
     res.json({
       success: true,

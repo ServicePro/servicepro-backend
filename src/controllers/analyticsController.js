@@ -1,50 +1,52 @@
-import Appointment from '../models/Appointment.js';
+import Booking from '../models/Booking.js';
+import EmergencyRequest from '../models/EmergencyRequest.js';
 import Service from '../models/Service.js';
 import Review from '../models/Review.js';
 import mongoose from 'mongoose';
 
-// Helper for month names
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// Revenue analytics
+const mkMonthKey = (year, month) => `${year}-${String(month).padStart(2, '0')}`;
+
+// ── Revenue analytics ─────────────────────────────────────────
 const getRevenueAnalytics = async (req, res, next) => {
   try {
     const providerId = new mongoose.Types.ObjectId(req.user.id);
     const months = parseInt(req.query.months) || 6;
-    
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - months);
 
-    const agg = await Appointment.aggregate([
-      { $match: { providerId, status: 'completed', appointment_date: { $gte: startDate } } },
-      { 
-        $group: {
-          _id: {
-            year: { $year: "$appointment_date" },
-            month: { $month: "$appointment_date" }
-          },
-          revenue: { $sum: "$amount" }
-        }
-      },
-      { $sort: { "_id.year": 1, "_id.month": 1 } }
+    // Regular bookings revenue (COMPLETED)
+    const bookingAgg = await Booking.aggregate([
+      { $match: { providerId, status: 'COMPLETED', createdAt: { $gte: startDate } } },
+      { $group: { _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } }, revenue: { $sum: '$amount' } } },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
     ]);
 
-    const revenue = agg.map(a => {
-      const monthStr = `${a._id.year}-${String(a._id.month).padStart(2, '0')}`;
-      return {
-        month: monthNames[a._id.month - 1],
-        month_key: monthStr,
-        revenue: a.revenue
-      };
+    // Emergency requests revenue (completed)
+    const emAgg = await EmergencyRequest.aggregate([
+      { $match: { providerId, status: 'completed', createdAt: { $gte: startDate } } },
+      { $group: { _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } }, revenue: { $sum: '$finalPrice' } } },
+    ]);
+
+    // Merge into month map
+    const revenueMap = {};
+    bookingAgg.forEach(a => {
+      const key = mkMonthKey(a._id.year, a._id.month);
+      revenueMap[key] = { month_key: key, month: monthNames[a._id.month - 1], revenue: a.revenue };
+    });
+    emAgg.forEach(a => {
+      const key = mkMonthKey(a._id.year, a._id.month);
+      if (revenueMap[key]) revenueMap[key].revenue += a.revenue;
+      else revenueMap[key] = { month_key: key, month: monthNames[a._id.month - 1], revenue: a.revenue };
     });
 
+    const revenue = Object.values(revenueMap).sort((a, b) => a.month_key.localeCompare(b.month_key));
     res.json({ success: true, data: { revenue } });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { next(error); }
 };
 
-// Appointment analytics
+// ── Booking/appointment breakdown analytics ───────────────────
 const getAppointmentAnalytics = async (req, res, next) => {
   try {
     const providerId = new mongoose.Types.ObjectId(req.user.id);
@@ -52,77 +54,64 @@ const getAppointmentAnalytics = async (req, res, next) => {
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - months);
 
-    const agg = await Appointment.aggregate([
-      { $match: { providerId, appointment_date: { $gte: startDate } } },
-      { 
+    const agg = await Booking.aggregate([
+      { $match: { providerId, createdAt: { $gte: startDate } } },
+      {
         $group: {
-          _id: {
-            year: { $year: "$appointment_date" },
-            month: { $month: "$appointment_date" }
-          },
-          completed: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } },
-          cancelled: { $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] } },
-          pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
-          confirmed: { $sum: { $cond: [{ $eq: ["$status", "confirmed"] }, 1, 0] } }
-        }
+          _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
+          completed: { $sum: { $cond: [{ $eq: ['$status', 'COMPLETED'] }, 1, 0] } },
+          cancelled: { $sum: { $cond: [{ $eq: ['$status', 'CANCELLED'] }, 1, 0] } },
+          pending:   { $sum: { $cond: [{ $eq: ['$status', 'PENDING'] }, 1, 0] } },
+          confirmed: { $sum: { $cond: [{ $in: ['$status', ['ACCEPTED', 'ONGOING']] }, 1, 0] } },
+        },
       },
-      { $sort: { "_id.year": 1, "_id.month": 1 } }
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
     ]);
 
-    const appointments = agg.map(a => {
-      const monthStr = `${a._id.year}-${String(a._id.month).padStart(2, '0')}`;
-      return {
-        month: monthNames[a._id.month - 1],
-        month_key: monthStr,
-        ...a
-      };
-    });
+    const appointments = agg.map(a => ({
+      month: monthNames[a._id.month - 1],
+      month_key: mkMonthKey(a._id.year, a._id.month),
+      completed: a.completed,
+      cancelled: a.cancelled,
+      pending:   a.pending,
+      confirmed: a.confirmed,
+    }));
 
     res.json({ success: true, data: { appointments } });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { next(error); }
 };
 
-// Service popularity
+// ── Service popularity ────────────────────────────────────────
 const getServicePopularity = async (req, res, next) => {
   try {
     const providerId = new mongoose.Types.ObjectId(req.user.id);
 
-    // Aggregate appointments to get counts
-    const agg = await Appointment.aggregate([
-      { $match: { providerId, status: 'completed' } },
-      { $group: { _id: "$serviceId", bookings: { $sum: 1 }, revenue: { $sum: "$amount" } } }
+    const agg = await Booking.aggregate([
+      { $match: { providerId, status: { $in: ['ACCEPTED', 'ONGOING', 'COMPLETED'] } } },
+      { $group: { _id: '$serviceId', bookings: { $sum: 1 }, revenue: { $sum: '$amount' } } },
+      { $sort: { bookings: -1 } },
+      { $limit: 6 },
     ]);
 
     const servicePopularity = [];
     for (const a of agg) {
-      const service = await Service.findById(a._id);
+      const service = await Service.findById(a._id).select('name category');
       if (service) {
-        servicePopularity.push({
-          name: service.name,
-          category: service.category,
-          bookings: a.bookings,
-          revenue: a.revenue
-        });
+        servicePopularity.push({ name: service.name, category: service.category, bookings: a.bookings, revenue: a.revenue });
       }
     }
-    
-    // Fallback if no appointments yet
+
+    // Fallback: list provider's services with their stored total_bookings
     if (servicePopularity.length === 0) {
-      const services = await Service.find({ providerId }).limit(6);
-      services.forEach(s => servicePopularity.push({ name: s.name, bookings: s.total_bookings }));
+      const services = await Service.find({ providerId }).sort({ total_bookings: -1 }).limit(6);
+      services.forEach(s => servicePopularity.push({ name: s.name, bookings: s.total_bookings || 0, revenue: 0 }));
     }
 
-    servicePopularity.sort((a, b) => b.bookings - a.bookings);
-
-    res.json({ success: true, data: { servicePopularity: servicePopularity.slice(0, 6) } });
-  } catch (error) {
-    next(error);
-  }
+    res.json({ success: true, data: { servicePopularity } });
+  } catch (error) { next(error); }
 };
 
-// Rating trend
+// ── Rating trend ──────────────────────────────────────────────
 const getRatingTrend = async (req, res, next) => {
   try {
     const providerId = new mongoose.Types.ObjectId(req.user.id);
@@ -132,34 +121,26 @@ const getRatingTrend = async (req, res, next) => {
 
     const agg = await Review.aggregate([
       { $match: { providerId, createdAt: { $gte: startDate } } },
-      { 
+      {
         $group: {
-          _id: {
-            year: { $year: "$createdAt" },
-            month: { $month: "$createdAt" }
-          },
-          avg_rating: { $avg: "$rating" }
-        }
+          _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
+          avg_rating: { $avg: '$rating' },
+        },
       },
-      { $sort: { "_id.year": 1, "_id.month": 1 } }
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
     ]);
 
-    const ratingTrend = agg.map(a => {
-      const monthStr = `${a._id.year}-${String(a._id.month).padStart(2, '0')}`;
-      return {
-        month: monthNames[a._id.month - 1],
-        month_key: monthStr,
-        avg_rating: parseFloat(a.avg_rating.toFixed(2))
-      };
-    });
+    const ratingTrend = agg.map(a => ({
+      month: monthNames[a._id.month - 1],
+      month_key: mkMonthKey(a._id.year, a._id.month),
+      avg_rating: parseFloat(a.avg_rating.toFixed(2)),
+    }));
 
     res.json({ success: true, data: { ratingTrend } });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { next(error); }
 };
 
-// KPI summary
+// ── KPI summary ───────────────────────────────────────────────
 const getKpiSummary = async (req, res, next) => {
   try {
     const providerId = new mongoose.Types.ObjectId(req.user.id);
@@ -167,43 +148,55 @@ const getKpiSummary = async (req, res, next) => {
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - months);
 
-    const revAgg = await Appointment.aggregate([
-      { $match: { providerId, status: 'completed', appointment_date: { $gte: startDate } } },
-      { $group: { _id: null, total: { $sum: "$amount" } } }
+    // Revenue: completed bookings + completed emergency requests
+    const [bookingRevAgg, emRevAgg] = await Promise.all([
+      Booking.aggregate([
+        { $match: { providerId, status: 'COMPLETED', createdAt: { $gte: startDate } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+      EmergencyRequest.aggregate([
+        { $match: { providerId, status: 'completed', createdAt: { $gte: startDate } } },
+        { $group: { _id: null, total: { $sum: '$finalPrice' } } },
+      ]),
+    ]);
+    const totalRevenue = (bookingRevAgg[0]?.total || 0) + (emRevAgg[0]?.total || 0);
+
+    // Total bookings in period
+    const [totalBookings, cancelledBookings] = await Promise.all([
+      Booking.countDocuments({ providerId, createdAt: { $gte: startDate } }),
+      Booking.countDocuments({ providerId, status: 'CANCELLED', createdAt: { $gte: startDate } }),
     ]);
 
-    const apptAgg = await Appointment.countDocuments({
-      providerId, appointment_date: { $gte: startDate }
+    // Emergency requests in period (accepted ones)
+    const totalEmergency = await EmergencyRequest.countDocuments({
+      providerId,
+      status: { $ne: 'pending' },
+      createdAt: { $gte: startDate },
     });
 
-    const cancelAgg = await Appointment.countDocuments({
-      providerId, status: 'cancelled', appointment_date: { $gte: startDate }
-    });
+    const totalAll = totalBookings + totalEmergency;
+    const cancellationRate = totalBookings > 0
+      ? ((cancelledBookings / totalBookings) * 100).toFixed(1)
+      : '0.0';
 
     const ratingAgg = await Review.aggregate([
       { $match: { providerId } },
-      { $group: { _id: null, avgRating: { $avg: "$rating" }, totalReviews: { $sum: 1 } } }
+      { $group: { _id: null, avgRating: { $avg: '$rating' }, totalReviews: { $sum: 1 } } },
     ]);
-
-    const totalAppts = apptAgg || 0;
-    const cancelledAppts = cancelAgg || 0;
-    const cancellationRate = totalAppts > 0 ? ((cancelledAppts / totalAppts) * 100).toFixed(1) : '0.0';
 
     res.json({
       success: true,
       data: {
         kpi: {
-          totalRevenue: revAgg.length > 0 ? parseFloat(revAgg[0].total).toFixed(2) : "0.00",
-          totalAppointments: totalAppts,
-          avgRating: ratingAgg.length > 0 ? ratingAgg[0].avgRating.toFixed(1) : "4.5",
-          totalReviews: ratingAgg.length > 0 ? ratingAgg[0].totalReviews : 0,
+          totalRevenue: totalRevenue.toFixed(2),
+          totalAppointments: totalAll,
+          avgRating: ratingAgg[0] ? ratingAgg[0].avgRating.toFixed(1) : '4.5',
+          totalReviews: ratingAgg[0]?.totalReviews || 0,
           cancellationRate: parseFloat(cancellationRate),
         },
       },
     });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { next(error); }
 };
 
 export {

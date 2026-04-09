@@ -1,18 +1,21 @@
 import EmergencyRequest from "../models/EmergencyRequest.js";
+import Review from "../models/Review.js";
 import Service from "../models/Service.js";
 import { awardLoyaltyPoints } from "./subscriptionController.js";
 
 const EMERGENCY_SERVICES = [
-  { id: "plumbing",    label: "Emergency Plumbing",    basePrice: 80,  icon: "🔧" },
-  { id: "electrical",  label: "Emergency Electrical",  basePrice: 100, icon: "⚡" },
-  { id: "cleaning",    label: "Emergency Cleaning",    basePrice: 60,  icon: "🧹" },
-  { id: "pest",        label: "Emergency Pest Control",basePrice: 70,  icon: "🐛" },
-  { id: "hvac",        label: "Emergency HVAC",        basePrice: 120, icon: "❄️" },
-  { id: "carpentry",   label: "Emergency Carpentry",   basePrice: 90,  icon: "🪚" },
-  { id: "painting",    label: "Emergency Painting",    basePrice: 70,  icon: "🎨" },
-  { id: "landscaping", label: "Emergency Landscaping", basePrice: 80,  icon: "🌿" },
-  { id: "home_repair", label: "Emergency Home Repair", basePrice: 85,  icon: "🏠" },
-  { id: "moving",      label: "Emergency Moving",      basePrice: 110, icon: "🚛" },
+  { id: "cleaning",       label: "Cleaning Services",      basePrice: 60,  icon: "🧹" },
+  { id: "beauty_wellness",label: "Beauty & Wellness",       basePrice: 70,  icon: "✨" },
+  { id: "electrical",     label: "Electrical Services",     basePrice: 100, icon: "⚡" },
+  { id: "plumbing",       label: "Plumbing Services",       basePrice: 80,  icon: "🔧" },
+  { id: "painting",       label: "Painting Services",       basePrice: 70,  icon: "🎨" },
+  { id: "home_repair",    label: "Repair Services",         basePrice: 85,  icon: "🛠️" },
+  { id: "tutoring",       label: "Tutoring Services",       basePrice: 50,  icon: "📚" },
+  { id: "health_fitness", label: "Health and Fitness",      basePrice: 60,  icon: "🏋️" },
+  { id: "childcare",      label: "Childcare Services",      basePrice: 55,  icon: "🧸" },
+  { id: "cooking",        label: "Cooking Services",        basePrice: 65,  icon: "👨‍🍳" },
+  { id: "elderly_care",   label: "Elderly Care Services",   basePrice: 60,  icon: "❤️" },
+  { id: "laundry",        label: "Laundry Services",        basePrice: 45,  icon: "🧺" },
 ];
 
 const URGENCY_MULTIPLIER = { high: 1.5, critical: 2.0 };
@@ -27,17 +30,25 @@ export const getEmergencyProviders = async (req, res) => {
   try {
     const { type } = req.query;
     const categoryMap = {
-      plumbing:    ['Plumbing'],
-      electrical:  ['Electrical'],
-      cleaning:    ['Cleaning'],
+      cleaning:        ['Cleaning'],
+      beauty_wellness: ['Beauty & Wellness'],
+      electrical:      ['Electrical'],
+      plumbing:        ['Plumbing'],
+      painting:        ['Painting'],
+      home_repair:     ['Home Repair'],
+      tutoring:        ['Tutoring'],
+      health_fitness:  ['Health and Fitness'],
+      childcare:       ['Childcare'],
+      cooking:         ['Cooking'],
+      elderly_care:    ['Elderly Care'],
+      laundry:         ['Laundry'],
+      // legacy / fallback
       pest:        ['Cleaning'],
-      hvac:        ['HVAC'],
-      carpentry:   ['Carpentry'],
-      painting:    ['Painting'],
-      landscaping: ['Landscaping'],
-      home_repair: ['Home Repair'],
-      moving:      ['Moving'],
-      general:     ['Plumbing','Electrical','Home Repair','Cleaning','Carpentry','HVAC','Painting','Landscaping','Moving'],
+      hvac:        ['Home Repair'],
+      carpentry:   ['Home Repair'],
+      landscaping: ['Home Repair'],
+      moving:      ['Home Repair'],
+      general:     ['Plumbing','Electrical','Home Repair','Cleaning','Painting','Beauty & Wellness','Tutoring','Health and Fitness','Childcare','Cooking','Elderly Care','Laundry'],
     };
     const cats = categoryMap[type] || categoryMap.general;
     const services = await Service.find({
@@ -155,8 +166,88 @@ export const acceptRequest = async (req, res) => {
 // GET /api/emergency/my
 export const getMyRequests = async (req, res) => {
   try {
-    const requests = await EmergencyRequest.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    const requests = await EmergencyRequest.find({ userId: req.user.id })
+      .populate('providerId', 'name profile_image rating category area')
+      .sort({ createdAt: -1 });
     res.json({ success: true, data: requests });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// serviceType → DB category mapping (mirrors EMERGENCY_SERVICES above)
+const SERVICE_TYPE_TO_CATEGORY = {
+  cleaning:        'Cleaning',
+  beauty_wellness: 'Beauty & Wellness',
+  electrical:      'Electrical',
+  plumbing:        'Plumbing',
+  painting:        'Painting',
+  home_repair:     'Home Repair',
+  tutoring:        'Tutoring',
+  health_fitness:  'Health and Fitness',
+  childcare:       'Childcare',
+  cooking:         'Cooking',
+  elderly_care:    'Elderly Care',
+  laundry:         'Laundry',
+};
+
+// PATCH /api/emergency/:id/rate  (user rates a completed emergency)
+export const rateRequest = async (req, res) => {
+  try {
+    const { rating, comment } = req.body;
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ success: false, message: 'Rating must be 1–5.' });
+    }
+    const request = await EmergencyRequest.findOne({ _id: req.params.id, userId: req.user.id, status: 'completed' });
+    if (!request) return res.status(404).json({ success: false, message: 'Completed emergency request not found.' });
+    if (request.userRating) return res.status(400).json({ success: false, message: 'Already rated.' });
+    request.userRating = rating;
+    request.userComment = comment?.trim() || null;
+    await request.save();
+
+    // Persist a Review doc linked to the provider's MATCHING service
+    // so it shows on that specific service's detail page (not on all services)
+    if (request.providerId) {
+      const alreadyReviewed = await Review.findOne({
+        clientId: req.user.id,
+        providerId: request.providerId,
+        bookingId: null,
+      });
+      if (!alreadyReviewed) {
+        // Find the provider's active service that matches this emergency type
+        const matchCategory = SERVICE_TYPE_TO_CATEGORY[request.serviceType] || null;
+        let matchedServiceId = null;
+        if (matchCategory) {
+          const matchedService = await Service.findOne({
+            providerId: request.providerId,
+            category: { $regex: matchCategory, $options: 'i' },
+            status: 'active',
+          }).lean();
+          matchedServiceId = matchedService?._id || null;
+        }
+
+        const createdReview = await Review.create({
+          providerId: request.providerId,
+          clientId: req.user.id,
+          serviceId: matchedServiceId,   // linked to specific service (or null if none found)
+          bookingId: request._id,        // cross-reference so getServiceReviews can deduplicate
+          rating,
+          comment: comment?.trim() || null,
+        });
+
+        // Update the service's cached rating if we found a match
+        if (matchedServiceId) {
+          const allRevs = await Review.find({ serviceId: matchedServiceId });
+          const avg = allRevs.reduce((s, r) => s + r.rating, 0) / allRevs.length;
+          await Service.findByIdAndUpdate(matchedServiceId, {
+            rating: Math.round(avg * 10) / 10,
+            reviews_count: allRevs.length,
+          });
+        }
+      }
+    }
+
+    res.json({ success: true, data: request });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -174,6 +265,23 @@ export const cancelRequest = async (req, res) => {
     request.status = "cancelled";
     await request.save();
     res.json({ success: true, data: request });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// PATCH /api/emergency/:id/complete  (provider marks completed)
+export const completeRequest = async (req, res) => {
+  try {
+    const request = await EmergencyRequest.findOne({
+      _id: req.params.id,
+      providerId: req.user.id,
+      status: { $in: ['assigned', 'en_route'] },
+    });
+    if (!request) return res.status(404).json({ success: false, message: 'Request not found or not in accepted state' });
+    request.status = 'completed';
+    await request.save();
+    res.json({ success: true, data: request, message: 'Emergency request marked as completed.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

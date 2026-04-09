@@ -171,9 +171,17 @@ export const cancelSession = async (req, res) => {
 // GET /api/consultations/providers?category=Plumbing
 export const getAvailableProviders = async (req, res) => {
   try {
-    const filter = { status: 'approved', is_active: true };
-    if (req.query.category) filter.category = req.query.category;
-    const providers = await Provider.find(filter, "name email phone category");
+    const filter = { status: 'approved' };
+    if (req.query.category) {
+      const catRegex = { $regex: req.query.category, $options: 'i' };
+      // Include providers whose category matches OR who have an active service in that category
+      const serviceProviderIds = await Service.distinct('providerId', { category: catRegex, status: 'active' });
+      filter.$or = [
+        { category: catRegex },
+        { _id: { $in: serviceProviderIds } },
+      ];
+    }
+    const providers = await Provider.find(filter, 'name email phone category area rating');
     res.json({ success: true, data: providers });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

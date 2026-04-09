@@ -6,7 +6,8 @@ import {
   getMe,
   updateProfile,
   changePassword,
-  searchProviders
+  searchProviders,
+  getFeaturedProviders,
 } from "../controllers/providerController.js";
 import { uploadProviderDocs } from "../middleware/uploadMiddleware.js";
 import { protect } from "../middleware/authMiddleware.js";
@@ -19,6 +20,9 @@ router.post("/register", uploadProviderDocs, registerProvider);
 // Admin routes
 router.get("/pending-providers", getPendingProviders);
 router.post("/approve-provider/:id", approveProvider);
+
+// Public: top-rated providers for landing page
+router.get("/featured", getFeaturedProviders);
 
 // Public search (used by user chat "New Conversation" modal)
 router.get("/search", searchProviders);

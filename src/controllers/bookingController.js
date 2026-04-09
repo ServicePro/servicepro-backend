@@ -95,3 +95,62 @@ export const getUserBookings = async (req, res, next) => {
     next(error);
   }
 };
+
+// ── Provider: get all bookings for this provider ──────────────
+export const getProviderBookings = async (req, res, next) => {
+  try {
+    const { status } = req.query;
+    const query = { providerId: req.user.id };
+    if (status) query.status = status.toUpperCase();
+
+    const bookings = await Booking.find(query)
+      .populate('serviceId', 'name category price image_url')
+      .populate('userId', 'name email phone')
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, data: bookings });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ── Provider: accept / reschedule / start / complete / cancel ─
+export const providerAction = async (req, res, next) => {
+  try {
+    const { status, scheduledDate, scheduledTime, providerNote } = req.body;
+    const validStatuses = ['ACCEPTED', 'ONGOING', 'COMPLETED', 'CANCELLED'];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+
+    const booking = await Booking.findOne({ _id: req.params.id, providerId: req.user.id })
+      .populate('serviceId', 'name category price image_url')
+      .populate('userId', 'name email phone');
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found.' });
+    }
+
+    // Guard: can't change a completed or cancelled booking
+    if (['COMPLETED', 'CANCELLED'].includes(booking.status)) {
+      return res.status(400).json({ success: false, message: `Cannot update a ${booking.status} booking.` });
+    }
+
+    booking.status = status;
+    if (scheduledDate) booking.scheduledDate = new Date(scheduledDate);
+    if (scheduledTime) booking.scheduledTime = scheduledTime;
+    if (providerNote !== undefined) booking.providerNote = providerNote;
+
+    await booking.save();
+
+    // Re-fetch with populated fields so frontend receives complete data
+    const updated = await Booking.findById(booking._id)
+      .populate('serviceId', 'name category price image_url')
+      .populate('userId', 'name email phone');
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    next(error);
+  }
+};

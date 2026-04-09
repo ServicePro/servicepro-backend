@@ -9,6 +9,8 @@ import {
   getEmergencyById,
   getForProviderRequests,
   acceptRequest,
+  completeRequest,
+  rateRequest,
 } from "../controllers/emergencyController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -25,8 +27,10 @@ router.patch("/:id/cancel", protect,       cancelRequest);
 router.patch("/:id/pay",    protect,       payEmergency);
 
 // Provider routes (must be before /:id to avoid conflict)
-router.get("/for-provider", protect,       getForProviderRequests);
-router.patch("/:id/accept", protect,       acceptRequest);
+router.get("/for-provider",   protect,     getForProviderRequests);
+router.patch("/:id/accept",   protect,     acceptRequest);
+router.patch("/:id/rate",     protect,     rateRequest);
+router.patch("/:id/complete", protect,     completeRequest);
 
 // User polling — must be last
 router.get("/:id",          protect,       getEmergencyById);

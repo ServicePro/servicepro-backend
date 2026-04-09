@@ -32,6 +32,9 @@ const bookingSchema = new mongoose.Schema(
       default: "UNPAID",
     },
     paymentId: { type: String, default: null }, // Used for mock transaction verification
+    scheduledDate: { type: Date, default: null },
+    scheduledTime: { type: String, default: null },
+    providerNote:  { type: String, default: null },
   },
   { timestamps: true },
 );

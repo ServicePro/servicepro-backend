@@ -14,6 +14,8 @@ const emergencyRequestSchema = new mongoose.Schema(
     eta:         { type: String },
     paymentStatus: { type: String, enum: ["unpaid", "paid", "failed", "cash_pending"], default: "unpaid" },
     paymentId:   { type: String },
+    userRating:  { type: Number, min: 1, max: 5, default: null },
+    userComment: { type: String, default: null },
   },
   { timestamps: true }
 );
