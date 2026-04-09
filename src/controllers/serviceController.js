@@ -19,7 +19,7 @@ const createService = async (req, res, next) => {
     let imageUrl = null;
 
     if (req.file) {
-      imageUrl = `/uploads/${req.file.filename}`;
+      imageUrl = req.file.path || req.file.secure_url || `/uploads/${req.file.filename}`;
     }
 
     const provider = await Provider.findById(req.user.id).select('area').lean();
@@ -109,7 +109,7 @@ const updateService = async (req, res, next) => {
     if (max_bookings_per_day) service.max_bookings_per_day = parseInt(max_bookings_per_day);
     
     if (req.file) {
-      service.image_url = `/uploads/${req.file.filename}`;
+      service.image_url = req.file.path || req.file.secure_url || `/uploads/${req.file.filename}`;
     }
 
     const updatedService = await service.save();

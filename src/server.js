@@ -1,8 +1,9 @@
+import 'dotenv/config';
+
 // ================= Existing Project Setup =================
 import app from "./app.js";
 
 // ================= Added Backend Setup =================
-import 'dotenv/config';
 import { connectDB } from './config/db.js';
 
 // ================= Server Configuration =================

@@ -58,7 +58,15 @@ DB_NAME=servicepro_db
 JWT_SECRET=your_secret_key_here
 JWT_EXPIRES_IN=7d
 CLIENT_URL=http://localhost:5173
+
+# Optional: Cloudinary (recommended for shared/stable image hosting)
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
 ```
+
+If Cloudinary variables are set, service images upload directly to Cloudinary and the API stores the Cloudinary URL.
+If they are not set, the backend automatically falls back to local `uploads/` storage.
 
 ### 3. Install dependencies
 
