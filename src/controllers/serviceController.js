@@ -1,4 +1,16 @@
+import Provider from '../models/Provider.js';
 import Service from '../models/Service.js';
+
+const parseAreaToServiceLocation = (area = '') => {
+  const normalized = String(area || '').trim();
+  if (!normalized) return null;
+
+  const [cityRaw, ...districtParts] = normalized.split(',').map((part) => part.trim()).filter(Boolean);
+  return {
+    city: cityRaw || normalized,
+    district: districtParts.join(', ') || undefined,
+  };
+};
 
 // Create a new service
 const createService = async (req, res, next) => {
@@ -10,6 +22,9 @@ const createService = async (req, res, next) => {
       imageUrl = `/uploads/${req.file.filename}`;
     }
 
+    const provider = await Provider.findById(req.user.id).select('area').lean();
+    const derivedLocation = parseAreaToServiceLocation(provider?.area);
+
     const service = new Service({
       providerId: req.user.id, // from authMiddleware
       name,
@@ -20,6 +35,7 @@ const createService = async (req, res, next) => {
       available_days: available_days ? available_days.split(',') : undefined,
       max_bookings_per_day: max_bookings_per_day ? parseInt(max_bookings_per_day) : undefined,
       image_url: imageUrl,
+      location: derivedLocation || undefined,
     });
 
     const savedService = await service.save();
@@ -171,15 +187,18 @@ const getPublicServices = async (req, res, next) => {
     } = req.query;
 
     let query = { status: "active" };
+    const andFilters = [];
 
     // 🔍 SEARCH — regex on name, category, description (no text index required)
     if (search) {
       const re = new RegExp(search.trim(), 'i');
-      query.$or = [
+      andFilters.push({
+        $or: [
         { name: re },
         { category: re },
         { description: re },
-      ];
+        ],
+      });
     }
 
     // 🏷 CATEGORY
@@ -189,7 +208,16 @@ const getPublicServices = async (req, res, next) => {
 
     // 📍 LOCATION (NEW)
     if (location) {
-      query["location.city"] = new RegExp(location, "i");
+      const locationRe = new RegExp(location.trim(), "i");
+      const providerIdsByArea = await Provider.find({ area: locationRe }).distinct("_id");
+
+      andFilters.push({
+        $or: [
+          { "location.city": locationRe },
+          { "location.district": locationRe },
+          { providerId: { $in: providerIdsByArea } },
+        ],
+      });
     }
 
     // 💰 PRICE RANGE
@@ -202,6 +230,10 @@ const getPublicServices = async (req, res, next) => {
     // ⭐ RATING FILTER (NEW)
     if (rating) {
       query.rating = { $gte: Number(rating) };
+    }
+
+    if (andFilters.length > 0) {
+      query.$and = andFilters;
     }
 
     const skip = (page - 1) * limit;
@@ -227,17 +259,25 @@ const getPublicServices = async (req, res, next) => {
     }
 
     const services = await Service.find(query)
-      .populate("providerId", "name")
+      .populate("providerId", "name area")
       .sort(sortOption)
       .skip(skip)
       .limit(Number(limit));
+
+    const normalizedServices = services.map((service) => {
+      const serviceObj = service.toObject();
+      if (!serviceObj.providerLocation && serviceObj.providerId?.area) {
+        serviceObj.providerLocation = serviceObj.providerId.area;
+      }
+      return serviceObj;
+    });
 
     const total = await Service.countDocuments(query);
 
     res.json({
       success: true,
       data: {
-        services,
+        services: normalizedServices,
         pagination: {
           total,
           page: Number(page),
@@ -252,7 +292,7 @@ const getPublicServices = async (req, res, next) => {
 
 const getPublicServiceById = async (req, res, next) => {
   try {
-    const service = await Service.findOne({ _id: req.params.id, status: "active" }).populate("providerId", "name");
+    const service = await Service.findOne({ _id: req.params.id, status: "active" }).populate("providerId", "name area");
 
     if (!service) {
       return res.status(404).json({ success: false, message: "Service not found." });

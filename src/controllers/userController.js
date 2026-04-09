@@ -1,7 +1,28 @@
-import jwt from "jsonwebtoken";
-import path from "path";
 import fs from "fs";
+import jwt from "jsonwebtoken";
 import multer from "multer";
+import path from "path";
+import Booking from "../models/Booking.js";
+import User from "../models/User.js";
+
+const serializeUser = (userDoc) => {
+  if (!userDoc) return null;
+
+  const user = typeof userDoc.toObject === "function" ? userDoc.toObject() : userDoc;
+  return {
+    _id: user._id,
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    bio: user.bio,
+    address: user.address,
+    dob: user.dob,
+    avatarUrl: user.avatarUrl || user.avatar_url || "",
+    avatar_url: user.avatar_url || user.avatarUrl || "",
+    role: user.role,
+  };
+};
 
 // ── Avatar upload ─────────────────────────────────────────────
 const avatarDir = "uploads/users";
@@ -174,6 +195,11 @@ export const updateUserProfile = async (req, res, next) => {
     user.address = req.body.address ?? user.address;
     user.dob     = req.body.dob     ?? user.dob;
 
+    if (req.file) {
+      user.avatarUrl = `/uploads/users/${req.file.filename}`;
+      user.avatar_url = user.avatarUrl;
+    }
+
     if (req.body.password) {
       const bcrypt = await import("bcryptjs");
       user.password = await bcrypt.default.hash(req.body.password, 10);
@@ -184,15 +210,7 @@ export const updateUserProfile = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        _id: updatedUser._id,
-        name: updatedUser.name,
-        email: updatedUser.email,
-        phone: updatedUser.phone,
-        bio: updatedUser.bio,
-        address: updatedUser.address,
-        dob: updatedUser.dob,
-        avatarUrl: updatedUser.avatarUrl,
-        role: updatedUser.role,
+        user: serializeUser(updatedUser),
       },
     });
   } catch (error) {
