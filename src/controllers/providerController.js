@@ -1,10 +1,9 @@
-import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import sendEmail from "../utils/sendEmail.js";
 
 import Provider from "../models/Provider.js";
-import Service from "../models/Service.js";
 import Review from "../models/Review.js";
+import Service from "../models/Service.js";
 export { Provider };
 
 // ── Register Provider ─────────────────────────────────────────────────────────
@@ -262,52 +261,48 @@ export const searchProviders = async (req, res) => {
   }
 };
 
-// GET /api/providers/featured?limit=12  — public, top-rated providers by real review data
+// GET /api/providers/featured?limit=3 — public, existing approved providers
 export const getFeaturedProviders = async (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit) || 12, 50);
+    const limit = Math.min(parseInt(req.query.limit, 10) || 3, 50);
 
-    // Aggregate real ratings per provider from the Review collection
+    // Aggregate review stats so we can enrich providers when review data exists.
     const reviewStats = await Review.aggregate([
-      { $group: {
-          _id: '$providerId',
-          avgRating:    { $avg: '$rating' },
-          reviewCount:  { $sum: 1 },
-      }},
-      { $sort: { avgRating: -1, reviewCount: -1 } },
+      {
+        $group: {
+          _id: "$providerId",
+          avgRating: { $avg: "$rating" },
+          reviewCount: { $sum: 1 },
+        },
+      },
     ]);
 
-    // Build a map of providerId -> stats
-    const statsMap = {};
-    for (const s of reviewStats) {
-      if (s._id) statsMap[String(s._id)] = s;
+    const statsMap = new Map();
+    for (const stat of reviewStats) {
+      if (stat?._id) statsMap.set(String(stat._id), stat);
     }
 
-    // Fetch all providers who have at least one review
-    const providerIdsWithReviews = reviewStats.map(s => s._id).filter(Boolean);
+    // Existing approved + active providers are eligible, even without reviews.
+    const providers = await Provider.find({
+      status: "approved",
+      is_active: true,
+    })
+      .select("_id name category profile_image skills experience area availability status rating")
+      .lean();
 
-    // Only return providers who have at least one real review, sorted by avg rating desc
-    let featured = [];
-    if (providerIdsWithReviews.length > 0) {
-      const withReviews = await Provider.find({
-        _id: { $in: providerIdsWithReviews },
-        is_active: true,
+    const featured = providers
+      .map((provider) => {
+        const stats = statsMap.get(String(provider._id));
+        const baseRating = Number(provider.rating) || 0;
+        const avgRating = Number(stats?.avgRating);
+
+        return {
+          ...provider,
+          rating: Number.isFinite(avgRating) && avgRating > 0 ? +avgRating.toFixed(1) : baseRating,
+          total_reviews: Number(stats?.reviewCount) || 0,
+        };
       })
-        .select('_id name category profile_image skills experience area availability status')
-        .lean();
-
-      featured = withReviews
-        .map(p => {
-          const s = statsMap[String(p._id)] || {};
-          return {
-            ...p,
-            rating:        +(s.avgRating || 0).toFixed(1),
-            total_reviews: s.reviewCount || 0,
-          };
-        })
-        .filter(p => p.rating > 0)
-        .sort((a, b) => b.rating - a.rating || b.total_reviews - a.total_reviews);
-    }
+      .sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0) || (Number(b.total_reviews) || 0) - (Number(a.total_reviews) || 0));
 
     res.json({ success: true, data: featured.slice(0, limit) });
   } catch (err) {
